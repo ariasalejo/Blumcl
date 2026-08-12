@@ -37,10 +37,10 @@ def frase_seguridad(w, animar=True):
     pad = max(0, (w - _dw(espaciada)) // 2)
     am, gris, r = "\033[1;93m", "\033[90m", "\033[0m"
     if animar and pad > 3:
-        paso = max(1, pad // 10)
+        paso = max(1, pad // 12)
         for q in range(0, pad, paso):
             print(f"\033[2K\r{am}{' ' * q}{espaciada}{r}", end="", flush=True)
-            time.sleep(0.03)
+            time.sleep(0.06)
     print(f"\033[2K\r{am}{' ' * pad}{espaciada}{r}")
     print(f"{gris}{' ' * (pad + 2)}{espaciada}{r}")
 

@@ -1,0 +1,10 @@
+reports/json/
+reports/html/
+reports/images/
+reports/archive/
+data/cache/
+data/history/
+data/snapshots/
+logs/
+__pycache__/
+*.pyc

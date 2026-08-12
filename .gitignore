@@ -8,3 +8,4 @@ data/snapshots/
 logs/
 __pycache__/
 *.pyc
+config/proteccion.json

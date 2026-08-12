@@ -1,6 +1,7 @@
 """Blumcl · scanner de almacenamiento.
 
 Regla 1: observar sin modificar.
+v2: modo rápido (salta directorios pesados) y progreso en vivo.
 """
 
 import json
@@ -13,6 +14,9 @@ from blumcl.utils.config import cargar
 HOME = Path.home()
 RAIZ = Path(__file__).parents[3]
 SNAPSHOTS = RAIZ / "data" / "snapshots"
+
+PESADAS = {".git", "storage", "llama.cpp", ".cache", ".fonts",
+           ".local", "node_modules", "__pycache__"}
 
 
 def espacio():
@@ -28,10 +32,14 @@ def espacio():
 
 def archivos_grandes(zonas, ext_crit, top=10, minimo_mb=10):
     hallazgos = []
+    cont = 0
     for raiz, dirs, files in os.walk(HOME):
         dirs[:] = [d for d in dirs
-                   if d not in zonas and d != ".git" and d != "storage"]
+                   if d not in zonas and d not in PESADAS]
         for nombre in files:
+            cont += 1
+            if cont % 800 == 0:
+                print(".", end="", flush=True)
             ruta = Path(raiz) / nombre
             if nombre in zonas or ruta.suffix in ext_crit:
                 continue
@@ -41,6 +49,7 @@ def archivos_grandes(zonas, ext_crit, top=10, minimo_mb=10):
                 continue
             if tam >= minimo_mb * 1024 * 1024:
                 hallazgos.append((tam, str(ruta)))
+    print(f" ({cont} archivos leídos)")
     hallazgos.sort(reverse=True)
     return [{"mb": round(t / 1e6, 1), "ruta": r} for t, r in hallazgos[:top]]
 

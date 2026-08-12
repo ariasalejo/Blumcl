@@ -9,7 +9,7 @@ from pathlib import Path
 RUTA = Path(__file__).parents[2] / "config" / "proteccion.json"
 
 DEFAULTS = {
-    "zonas_intocables": [".ssh", "Ciberseguridad", ".termux", ".gnupg"],
+    "zonas_intocables": [".ssh", ".termux", ".gnupg", ".config"],
     "extensiones_criticas": [".key", ".pem", ".gpg", ".keystore"],
     "tamano_grande_mb": 100,
 }
@@ -24,3 +24,7 @@ def cargar():
         return json.loads(RUTA.read_text())
     except json.JSONDecodeError:
         return dict(DEFAULTS)
+
+
+def guardar(cfg):
+    RUTA.write_text(json.dumps(cfg, ensure_ascii=False, indent=2))

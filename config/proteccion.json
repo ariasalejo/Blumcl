@@ -1,0 +1,15 @@
+{
+  "zonas_intocables": [
+    ".ssh",
+    ".termux",
+    ".gnupg",
+    ".config"
+  ],
+  "extensiones_criticas": [
+    ".key",
+    ".pem",
+    ".gpg",
+    ".keystore"
+  ],
+  "tamano_grande_mb": 100
+}

@@ -1,0 +1,397 @@
+"""
+BLUMCL - Snapshot Core.
+
+Un snapshot representa una fotografía histórica del estado
+observado por BLUMCL.
+
+Principios:
+
+    - Observar sin modificar.
+    - Conservar evidencia histórica.
+    - Permitir comparación temporal.
+    - Mantener trazabilidad.
+    - No ejecutar acciones sobre el sistema.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any
+import json
+
+from blumcl.core.evidence import Evidence
+
+
+@dataclass(frozen=True)
+class SnapshotFile:
+    """Representación mínima de un archivo observado."""
+
+    path: str
+    size_bytes: int
+    sha256: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.path:
+            raise ValueError("path no puede estar vacío")
+
+        if self.size_bytes < 0:
+            raise ValueError(
+                "size_bytes no puede ser negativo"
+            )
+
+        if self.sha256 is not None:
+            digest = self.sha256.lower()
+
+            if len(digest) != 64:
+                raise ValueError(
+                    "sha256 debe contener 64 caracteres"
+                )
+
+            int(digest, 16)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "path": self.path,
+            "size_bytes": self.size_bytes,
+            "sha256": self.sha256,
+        }
+
+
+@dataclass
+class Snapshot:
+    """
+    Fotografía histórica del estado observado.
+
+    Las evidencias asociadas permiten reconstruir
+    por qué un elemento fue considerado relevante.
+    """
+
+    snapshot_id: str
+    timestamp: str
+
+    total_bytes: int | None = None
+    used_bytes: int | None = None
+    free_bytes: int | None = None
+
+    files: list[SnapshotFile] = field(
+        default_factory=list
+    )
+
+    evidences: list[Evidence] = field(
+        default_factory=list
+    )
+
+    metadata: dict[str, Any] = field(
+        default_factory=dict
+    )
+
+    @staticmethod
+    def create_id(
+        sequence: int,
+    ) -> str:
+        if sequence < 0:
+            raise ValueError(
+                "sequence no puede ser negativo"
+            )
+
+        return f"BLUMCL-S-{sequence:06d}"
+
+    @staticmethod
+    def now() -> str:
+        return datetime.now(
+            timezone.utc
+        ).isoformat()
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        sequence: int,
+        total_bytes: int | None = None,
+        used_bytes: int | None = None,
+        free_bytes: int | None = None,
+        files: list[SnapshotFile] | None = None,
+        evidences: list[Evidence] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> "Snapshot":
+        return cls(
+            snapshot_id=cls.create_id(sequence),
+            timestamp=cls.now(),
+            total_bytes=total_bytes,
+            used_bytes=used_bytes,
+            free_bytes=free_bytes,
+            files=list(files or []),
+            evidences=list(evidences or []),
+            metadata=dict(metadata or {}),
+        )
+
+    def add_file(
+        self,
+        path: str,
+        size_bytes: int,
+        sha256: str | None = None,
+    ) -> SnapshotFile:
+        """Añade una observación de archivo."""
+
+        file_data = SnapshotFile(
+            path=path,
+            size_bytes=size_bytes,
+            sha256=sha256,
+        )
+
+        self.files.append(file_data)
+
+        return file_data
+
+    def add_evidence(
+        self,
+        evidence: Evidence,
+    ) -> Evidence:
+        """Asocia evidencia al snapshot."""
+
+        if evidence.snapshot_id is not None:
+            if evidence.snapshot_id != self.snapshot_id:
+                raise ValueError(
+                    "La evidencia pertenece a otro snapshot"
+                )
+
+        self.evidences.append(evidence)
+
+        return evidence
+
+    def file_index(
+        self,
+    ) -> dict[str, SnapshotFile]:
+        """Indexa archivos por ruta."""
+
+        return {
+            file.path: file
+            for file in self.files
+        }
+
+    def evidence_index(
+        self,
+    ) -> dict[str, Evidence]:
+        """Indexa evidencias por identificador."""
+
+        return {
+            evidence.evidence_id: evidence
+            for evidence in self.evidences
+        }
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "snapshot_id": self.snapshot_id,
+            "timestamp": self.timestamp,
+            "total_bytes": self.total_bytes,
+            "used_bytes": self.used_bytes,
+            "free_bytes": self.free_bytes,
+            "files": [
+                file.to_dict()
+                for file in self.files
+            ],
+            "evidences": [
+                evidence.to_dict()
+                for evidence in self.evidences
+            ],
+            "metadata": self.metadata,
+        }
+
+    def to_json(
+        self,
+        *,
+        indent: int = 2,
+    ) -> str:
+        return json.dumps(
+            self.to_dict(),
+            indent=indent,
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: dict[str, Any],
+    ) -> "Snapshot":
+        files = [
+            SnapshotFile(
+                path=item["path"],
+                size_bytes=item["size_bytes"],
+                sha256=item.get("sha256"),
+            )
+            for item in data.get("files", [])
+        ]
+
+        evidences: list[Evidence] = []
+
+        for item in data.get("evidences", []):
+            evidences.append(
+                Evidence(
+                    evidence_id=item["evidence_id"],
+                    timestamp=item["timestamp"],
+                    path=item["path"],
+                    source=item["source"],
+                    category=item["category"],
+                    size_bytes=item.get("size_bytes"),
+                    file_type=item.get("file_type"),
+                    confidence=item.get("confidence"),
+                    sha256=item.get("sha256"),
+                    snapshot_id=item.get("snapshot_id"),
+                    recommendation=item.get(
+                        "recommendation"
+                    ),
+                    action=item.get("action", "none"),
+                    metadata=item.get(
+                        "metadata",
+                        {},
+                    ),
+                )
+            )
+
+        return cls(
+            snapshot_id=data["snapshot_id"],
+            timestamp=data["timestamp"],
+            total_bytes=data.get("total_bytes"),
+            used_bytes=data.get("used_bytes"),
+            free_bytes=data.get("free_bytes"),
+            files=files,
+            evidences=evidences,
+            metadata=dict(
+                data.get("metadata", {})
+            ),
+        )
+
+    @classmethod
+    def from_json(
+        cls,
+        payload: str,
+    ) -> "Snapshot":
+        data = json.loads(payload)
+
+        if not isinstance(data, dict):
+            raise ValueError(
+                "El snapshot JSON debe ser un objeto"
+            )
+
+        return cls.from_dict(data)
+
+
+@dataclass(frozen=True)
+class SnapshotChanges:
+    """Resultado de comparar dos snapshots."""
+
+    added: tuple[SnapshotFile, ...] = ()
+    removed: tuple[SnapshotFile, ...] = ()
+    grew: tuple[tuple[SnapshotFile, int], ...] = ()
+    shrank: tuple[tuple[SnapshotFile, int], ...] = ()
+    unchanged: tuple[SnapshotFile, ...] = ()
+
+    @property
+    def changed_count(self) -> int:
+        return (
+            len(self.added)
+            + len(self.removed)
+            + len(self.grew)
+            + len(self.shrank)
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "added": [
+                item.to_dict()
+                for item in self.added
+            ],
+            "removed": [
+                item.to_dict()
+                for item in self.removed
+            ],
+            "grew": [
+                {
+                    "file": item.to_dict(),
+                    "delta_bytes": delta,
+                }
+                for item, delta in self.grew
+            ],
+            "shrank": [
+                {
+                    "file": item.to_dict(),
+                    "delta_bytes": delta,
+                }
+                for item, delta in self.shrank
+            ],
+            "unchanged": [
+                item.to_dict()
+                for item in self.unchanged
+            ],
+        }
+
+
+def compare_snapshots(
+    previous: Snapshot,
+    current: Snapshot,
+) -> SnapshotChanges:
+    """
+    Compara dos snapshots sin modificar ninguno.
+    """
+
+    old = previous.file_index()
+    new = current.file_index()
+
+    added: list[SnapshotFile] = []
+    removed: list[SnapshotFile] = []
+    grew: list[tuple[SnapshotFile, int]] = []
+    shrank: list[tuple[SnapshotFile, int]] = []
+    unchanged: list[SnapshotFile] = []
+
+    for path, file_data in new.items():
+        if path not in old:
+            added.append(file_data)
+            continue
+
+        previous_file = old[path]
+
+        delta = (
+            file_data.size_bytes
+            - previous_file.size_bytes
+        )
+
+        if delta > 0:
+            grew.append(
+                (
+                    file_data,
+                    delta,
+                )
+            )
+
+        elif delta < 0:
+            shrank.append(
+                (
+                    file_data,
+                    delta,
+                )
+            )
+
+        else:
+            unchanged.append(file_data)
+
+    for path, file_data in old.items():
+        if path not in new:
+            removed.append(file_data)
+
+    return SnapshotChanges(
+        added=tuple(added),
+        removed=tuple(removed),
+        grew=tuple(grew),
+        shrank=tuple(shrank),
+        unchanged=tuple(unchanged),
+    )
+
+
+__all__ = [
+    "Snapshot",
+    "SnapshotChanges",
+    "SnapshotFile",
+    "compare_snapshots",
+]

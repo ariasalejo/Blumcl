@@ -30,14 +30,13 @@ class IALocal:
         cmd = [
             "llama-cli",
             "-m", str(self.modelo),
-            "-p", pregunta,
-            "-n", str(max_tokens),
-            "-c", str(self.contexto),
-            "-t", str(self.hilos),
+            "-cnv",
+            "--color", "on",
+            "-t", "4",
+            "-c", "4096",
             "--temp", "0.7",
-            "--color", "off",
-            "--no-display-prompt",
-            "-ngl", "0",
+            "--repeat-penalty", "1.1",
+            "-p", "Eres Blumcl-IA, analista local de un teléfono Android. Responde SIEMPRE en español, breve y claro. Filosofía: observar antes de actuar, nunca ordenar borrar sin confirmación humana.",
         ]
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)

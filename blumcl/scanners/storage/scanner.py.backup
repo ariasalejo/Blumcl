@@ -8,14 +8,12 @@ Principios:
     - Respetar rutas protegidas.
     - No eliminar ni mover archivos.
     - Mantener compatibilidad con el formato anterior.
-    - Mostrar telemetría real durante el análisis.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
@@ -34,6 +32,8 @@ RAIZ = Path(__file__).parents[3]
 SNAPSHOTS = RAIZ / "data" / "snapshots"
 
 
+# Directorios conocidos que pueden hacer una exploración
+# innecesariamente costosa.
 PESADAS = {
     ".git",
     "storage",
@@ -76,9 +76,7 @@ def _normalizar_zonas(
             if not ruta.is_absolute():
                 ruta = HOME / ruta
 
-            resultado.add(
-                ruta.resolve(strict=False)
-            )
+            resultado.add(ruta.resolve(strict=False))
 
         except (OSError, RuntimeError):
             continue
@@ -94,7 +92,6 @@ def _esta_protegida(
 
     try:
         ruta = ruta.resolve(strict=False)
-
     except (OSError, RuntimeError):
         return True
 
@@ -102,7 +99,6 @@ def _esta_protegida(
         try:
             ruta.relative_to(zona)
             return True
-
         except ValueError:
             continue
 
@@ -139,34 +135,6 @@ def _confianza_archivo_grande(
     return 0.70
 
 
-def _mostrar_progreso(
-    cont: int,
-    hallazgos: int,
-    protegidos: int,
-    omitidos: int,
-) -> None:
-    """
-    Muestra telemetría compacta del escaneo.
-
-    No calcula porcentajes ficticios porque el número total
-    de archivos no se conoce hasta terminar el recorrido.
-    """
-
-    mensaje = (
-        f"\r\033[2K"
-        f"   🔬 {cont:,} archivos"
-        f" │ 🔎 {hallazgos:,} hallazgos"
-        f" │ 🛡️ {protegidos:,} protegidos"
-        f" │ ⏭️ {omitidos:,} omitidos"
-    )
-
-    print(
-        mensaje,
-        end="",
-        flush=True,
-    )
-
-
 def archivos_grandes(
     zonas,
     ext_crit,
@@ -176,7 +144,7 @@ def archivos_grandes(
     """
     Encuentra archivos grandes.
 
-    Conserva el formato histórico de BLUMCL:
+    Esta función conserva el formato histórico de BLUMCL:
 
         [
             {
@@ -189,46 +157,29 @@ def archivos_grandes(
     """
 
     hallazgos = []
-
     cont = 0
-    protegidos = 0
-    omitidos = 0
 
     zonas_normalizadas = _normalizar_zonas(zonas)
 
-    print()
-    print("   🔬 Iniciando recorrido...")
-    print()
-
     for raiz, dirs, files in os.walk(HOME):
-
         raiz_path = Path(raiz)
 
-        # Evitar directorios pesados y protegidos.
-        dirs_filtradas = []
-
-        for directorio in dirs:
-
-            ruta_directorio = raiz_path / directorio
-
-            if directorio in PESADAS:
-                omitidos += 1
-                continue
-
-            if _esta_protegida(
-                ruta_directorio,
+        # Evitar directorios protegidos y pesados.
+        dirs[:] = [
+            d
+            for d in dirs
+            if d not in PESADAS
+            and not _esta_protegida(
+                raiz_path / d,
                 zonas_normalizadas,
-            ):
-                protegidos += 1
-                continue
-
-            dirs_filtradas.append(directorio)
-
-        dirs[:] = dirs_filtradas
+            )
+        ]
 
         for nombre in files:
-
             cont += 1
+
+            if cont % 800 == 0:
+                print(".", end="", flush=True)
 
             ruta = raiz_path / nombre
 
@@ -236,45 +187,14 @@ def archivos_grandes(
                 ruta,
                 zonas_normalizadas,
             ):
-                protegidos += 1
-
-                if cont % 250 == 0:
-                    _mostrar_progreso(
-                        cont,
-                        len(hallazgos),
-                        protegidos,
-                        omitidos,
-                    )
-
                 continue
 
             if ruta.suffix.lower() in ext_crit:
-                omitidos += 1
-
-                if cont % 250 == 0:
-                    _mostrar_progreso(
-                        cont,
-                        len(hallazgos),
-                        protegidos,
-                        omitidos,
-                    )
-
                 continue
 
             try:
                 tam = ruta.stat().st_size
-
             except OSError:
-                omitidos += 1
-
-                if cont % 250 == 0:
-                    _mostrar_progreso(
-                        cont,
-                        len(hallazgos),
-                        protegidos,
-                        omitidos,
-                    )
-
                 continue
 
             if tam >= minimo_mb * 1024 * 1024:
@@ -285,40 +205,16 @@ def archivos_grandes(
                     )
                 )
 
-            if cont % 250 == 0:
-                _mostrar_progreso(
-                    cont,
-                    len(hallazgos),
-                    protegidos,
-                    omitidos,
-                )
+    print(f" ({cont} archivos leídos)")
 
-    # Limpiar la línea de progreso.
-    print(
-        "\r\033[2K",
-        end="",
-    )
-
-    print(
-        f"   ✓ {cont:,} archivos analizados"
-        f" │ 🔎 {len(hallazgos):,} hallazgos"
-        f" │ 🛡️ {protegidos:,} protegidos"
-        f" │ ⏭️ {omitidos:,} omitidos"
-    )
-
-    hallazgos.sort(
-        reverse=True
-    )
+    hallazgos.sort(reverse=True)
 
     return [
         {
-            "mb": round(
-                tamano / 1e6,
-                1,
-            ),
-            "ruta": ruta,
+            "mb": round(t / 1e6, 1),
+            "ruta": r,
         }
-        for tamano, ruta in hallazgos[:top]
+        for t, r in hallazgos[:top]
     ]
 
 
@@ -331,17 +227,15 @@ def generar_evidencias_archivos_grandes(
     """
     Convierte los hallazgos tradicionales en Evidence.
 
-    Solamente observa y estructura información.
-    No ejecuta ninguna acción.
+    Importante:
+        solamente observa y estructura información.
+        No ejecuta ninguna acción.
     """
 
     evidencias: list[Evidence] = []
 
     for offset, hallazgo in enumerate(hallazgos):
-
-        ruta = Path(
-            hallazgo["ruta"]
-        )
+        ruta = Path(hallazgo["ruta"])
 
         try:
             evidence = evidence_from_file(
@@ -352,7 +246,6 @@ def generar_evidencias_archivos_grandes(
                 calculate_hash=False,
                 snapshot_id=snapshot_id,
             )
-
         except (OSError, ValueError):
             continue
 
@@ -375,9 +268,7 @@ def generar_evidencias_archivos_grandes(
             "No se recomienda ninguna acción automática."
         )
 
-        evidencias.append(
-            evidence
-        )
+        evidencias.append(evidence)
 
     return evidencias
 
@@ -397,9 +288,7 @@ def analizar() -> dict:
 
     snapshot_id = (
         "BLUMCL-S-"
-        + datetime.now(
-            timezone.utc
-        ).strftime(
+        + datetime.now(timezone.utc).strftime(
             "%Y%m%d%H%M%S"
         )
     )
@@ -501,16 +390,13 @@ def autodiagnostico() -> list[str]:
         "llama32.gguf",
         "qwen3.gguf",
     ]:
-
         path = HOME / modelo
 
         if path.exists():
-
             try:
                 size_mb = round(
                     path.stat().st_size / 1e6
                 )
-
             except OSError:
                 continue
 

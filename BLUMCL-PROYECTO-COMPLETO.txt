@@ -1,0 +1,2594 @@
+========================================
+        BLUMCL - PROYECTO COMPLETO
+========================================
+
+Fecha:
+Thu Aug 13 00:16:54 -05 2026
+
+========================================
+ESTRUCTURA DEL PROYECTO
+========================================
+./.gitignore
+./BLUMCL-PROYECTO-COMPLETO.txt
+./README.md
+./app.py
+./blumcl/__init__.py
+./blumcl/ai/__init__.py
+./blumcl/ai/local_ai.py
+./blumcl/analysis/__init__.py
+./blumcl/analysis/aprende.py
+./blumcl/analysis/comparar.py
+./blumcl/cleaner/__init__.py
+./blumcl/cleaner/controlled.py
+./blumcl/core/__init__.py
+./blumcl/reports/__init__.py
+./blumcl/reports/html.py
+./blumcl/scanners/__init__.py
+./blumcl/scanners/apps/__init__.py
+./blumcl/scanners/cpu/__init__.py
+./blumcl/scanners/memory/__init__.py
+./blumcl/scanners/storage/__init__.py
+./blumcl/scanners/storage/scanner.py
+./blumcl/scanners/system/__init__.py
+./blumcl/ui/__init__.py
+./blumcl/ui/banner.py
+./blumcl/utils/__init__.py
+./blumcl/utils/config.py
+./config/proteccion.ejemplo.json
+./config/proteccion.json
+./data/snapshots/2026-08-12_04-38.json
+./data/snapshots/2026-08-12_05-25.json
+./data/snapshots/2026-08-12_10-29.json
+./data/snapshots/2026-08-12_10-34.json
+./declaracion_etica.py
+./docs/VISION-Y-ROADMAP.md
+./docs/architecture/components.md
+./docs/architecture/decisions.md
+./docs/architecture/evidence-model.md
+./docs/architecture/flow.md
+./docs/architecture/overview.md
+./docs/development/contributing.md
+./docs/development/estructura.md
+./docs/development/language-policy.md
+./docs/development/release-process.md
+./docs/development/testing.md
+./docs/modules/terminal-mando.md
+./docs/security/principles.md
+./exportar_blumcl.sh
+./informe.py
+./install.sh
+./reports/html/informe.html
+./requirements.txt
+./tests/analysis/test_ai.py
+./tests/utils/__init__.py
+./tests/utils/test_config.py
+
+========================================
+CONTENIDO DE LOS ARCHIVOS
+========================================
+
+
+########################################
+# ARCHIVO: ./BLUMCL-PROYECTO-COMPLETO.txt
+########################################
+
+
+
+########################################
+# ARCHIVO: ./README.md
+########################################
+
+# 🚀 BLUMCL
+
+**Observar → Analizar → Comprender → Recomendar → Confirmar → Actuar**
+
+Herramienta local para Termux/Android de diagnóstico, análisis y
+limpieza controlada del sistema, con IA 100% local y privada.
+
+> Blumcl no limpia por limpiar: te ayuda a comprender tu dispositivo.
+
+## ✨ Características
+
+- 🔬 Escáner de almacenamiento que observa sin modificar
+- 🛡️ Zonas intocables configurables (nunca toca lo crítico)
+- ⏳ Snapshots con marca de tiempo: reconstrucción cronológica
+- 📊 Informe HTML autocontenido (offline, sin CDNs)
+- 🤖 IA local privada (llama.cpp) que interpreta tu evidencia
+- 🧹 Limpieza controlada con dry-run y confirmación humana
+- 🎛️ Terminal responsiva con banner cyan y robot guía
+- 🚫 Cero nube · cero cuentas · cero telemetría
+
+## 📱 Instalación
+
+    pkg install python git
+    git clone <TU-REPO> && cd Blumcl
+    blumcl
+
+## 🎛️ Uso
+
+    blumcl
+    → 1  escanear y guardar snapshot
+    → 2  generar y descargar informe
+    → 3  comparar snapshots (qué cambió)
+    → 5  preguntar a la IA local
+    → 7  limpieza dry-run (solo sugerencias)
+
+## 🔐 Seguridad
+
+Ver docs/security/principles.md.
+El análisis nunca modifica. Nada se borra sin confirmación.
+Los informes personales no se publican (reports/ en .gitignore).
+
+## 🗺️ Arquitectura
+
+Ver docs/architecture/overview.md y docs/architecture/flow.md.
+
+## 🎁 Por qué existe este repo
+
+Blumcl es un regalo de Blumix para la gente: la prueba de que se
+puede aprender ingeniería de verdad construyendo desde un celular.
+Hecho con ❤️ en Medellín.
+
+## 🚧 Estado
+
+v0.5.1 · desarrollo activo · construido en un teléfono
+
+
+########################################
+# ARCHIVO: ./app.py
+########################################
+
+#!/usr/bin/env python
+"""Blumcl · Terminal de Mando v0.5.0."""
+
+import json
+import shutil
+from pathlib import Path
+
+from blumcl.ai import IALocal
+from blumcl.scanners.storage import scanner
+from blumcl.utils.config import cargar
+
+VERSION = "0.5.1"
+
+TIPS = {
+    "1": "💡 Un snapshot es una foto con fecha: tu reconstrucción cronológica.",
+    "2": "💡 El informe es autocontenido: con modo avión sigue vivo.",
+    "3": "💡 Comparar = ver qué cambió entre dos fotos del sistema.",
+    "4": "💡 Evidencia antes que acción: tu regla de oro.",
+    "5": "💡 Tu IA responde sin internet: nadie lee tus preguntas.",
+    "6": "💡 El autodiagnóstico sugiere; jamás borra sin tu sí.",
+    "7": "💡 Dry-run: ensayar sin tocar. Así trabajan los pros.",
+    "8": "💡 Las zonas intocables son tu cinturón de seguridad.",
+    "9": "💡 La config se regenera sola si se daña.",
+}
+
+
+def cabecera():
+    from blumcl.ui.banner import cabecera as banner_resp
+    try:
+        e = scanner.espacio()
+        disco = f"💾 {e['libre_gb']} GB libres de {e['total_gb']} GB"
+    except Exception:
+        disco = "💾 disco: n/d"
+    print(banner_resp(disco, VERSION))
+
+
+MENU = """
+  [1] 🔬 Escanear almacenamiento
+  [2] 📊 Generar informe HTML
+  [3] ⏳ Comparar snapshots (qué cambió)
+  [4] 🗂️  Historial de snapshots
+  [5] 🤖 Preguntar a la IA
+  [6] 🩺 Autodiagnóstico
+  [7] 🧹 Limpieza controlada (dry-run)
+  [8] 🛡️  Ver zonas protegidas
+  [9] ⚙️  Configuración
+  [0] 👋 Salir
+"""
+
+
+
+ROBOTS = [
+    [
+        "   ┌───┐   ",
+        "   │o o│   ",
+        "   │ ─ │   ",
+        "   └┬─┬┘   ",
+        " ┌──┘ └──┐ ",
+        " ~│     │  ",
+        "  │     │  ",
+        "  └──┬──┘  ",
+        "  ┌──┴──┐  ",
+        "  └─────┘  ",
+    ],
+    [
+        "   ┌───┐   ",
+        "   │o o│   ",
+        "   │ ─ │   ",
+        "   └┬─┬┘   ",
+        " ┌──┘ └──┐ ",
+        " │     │~  ",
+        " │     │   ",
+        "  └──┬──┘  ",
+        "  ┌──┴──┐  ",
+        "  └─────┘  ",
+    ],
+]
+
+MENU_CORTO = """
+  [1] 🔬 Escanear
+  [2] 📊 Informe HTML
+  [3] ⏳ Comparar
+  [4] 🗂️  Historial
+  [5] 🤖 Preguntar IA
+  [6] 🩺 Autodiagnóstico
+  [7] 🧹 Limpieza dry-run
+  [8] 🛡️  Zonas protegidas
+  [9] ⚙️  Configuración
+  [0] 👋 Salir
+"""
+
+
+def _dw(s):
+    from unicodedata import east_asian_width as ew
+    return sum(2 if ew(c) in "WF" else 1 for c in s)
+
+
+def menu_con_robot():
+    import random
+    from blumcl.ui.banner import ancho_terminal
+    w = ancho_terminal()
+    opciones = [MENU if w >= 64 else MENU_CORTO, MENU_CORTO]
+    for menu in opciones:
+        lineas = menu.strip("\n").split("\n")
+        maxl = max(_dw(l) for l in lineas)
+        if w >= maxl + 3 + 13:
+            elegido = random.choice(ROBOTS)
+            return "\n".join(
+                l + " " * (maxl + 3 - _dw(l)) +
+                (elegido[i] if i < len(elegido) else "")
+                for i, l in enumerate(lineas))
+    return "\n".join(MENU_CORTO.strip("\n").split("\n"))
+
+
+def seccion(titulo):
+    from blumcl.ui.banner import ancho_terminal
+    w = ancho_terminal()
+    print()
+    print(f"\033[96m{'─' * w}\033[0m")
+    print(f"\033[1m  {titulo}\033[0m")
+    print(f"\033[96m{'─' * w}\033[0m")
+
+
+def leer(prompt):
+    """Reset de color ANSI antes de pedir entrada: nunca letra invisible."""
+    return input("\033[0m" + prompt)
+
+
+def ofrecer_reporte(datos):
+    from blumcl.reports.html import generar
+    out = generar(datos)
+    print("📄 Reporte generado:", out)
+    if leer("📥 ¿Descargar tu reporte? (y/n): ").strip().lower() == "y":
+        copia = Path.home() / "storage" / "shared" / "Download" / "informe.html"
+        shutil.copy(out, copia)
+        print("✅ En Download → Archivos → Download → informe.html → Chrome.")
+
+
+def main():
+    ia = IALocal()
+    while True:
+        cabecera()
+        print(menu_con_robot())
+        op = leer("→ ").strip()
+
+        if op == "1":
+            print("\n🔬 Observando (sin modificar)...")
+            print("📂 Leyendo tu home...")
+            datos = scanner.analizar()
+            print("🐘 Ordenando hallazgos...")
+            e = datos["espacio"]
+            print(f"\n💾 {e['usado_gb']} GB usados de {e['total_gb']} GB")
+            print("\n🐘 Archivos más grandes:")
+            for a in datos["archivos_grandes"]:
+                print(f"   {a['mb']:>8} MB  {a['ruta']}")
+            snap = scanner.guardar_snapshot(datos)
+            print(f"\n📊 Snapshot: {snap.name}")
+            ofrecer_reporte(datos)
+            if leer("🤖 ¿Análisis de la IA? (s/n): ").strip().lower() == "s":
+                print(ia.interpretar_evidencia(
+                    json.dumps(datos, ensure_ascii=False)))
+        elif op == "2":
+            snaps = sorted(scanner.SNAPSHOTS.glob("*.json"))
+            if not snaps:
+                print("❌ No hay snapshots: usa la opción 1.")
+            else:
+                ofrecer_reporte(json.loads(snaps[-1].read_text()))
+        elif op == "3":
+            from blumcl.analysis import comparar as comp
+            print("\n⏳ " + (comp.comparar()
+                  or "ℹ️ Necesito 2 snapshots: vuelve a escanear (opción 1)."))
+        elif op == "4":
+            from blumcl.analysis import comparar as comp
+            snaps = comp.listar()
+            print(f"\n🗂️  Historial: {len(snaps)} snapshots")
+            for s in snaps:
+                print("   📊", s.name)
+        elif op == "5":
+            q = leer("Tu pregunta: ").strip()
+            if q:
+                print("\n🤖 Pensando...\n")
+                print(ia.preguntar(q, 300))
+        elif op == "6":
+            seccion("🩺 AUTODIAGNÓSTICO")
+            avisos = scanner.autodiagnostico()
+            if not avisos:
+                print("\n  🟢 Sin avisos: todo en orden.")
+            for a in avisos:
+                print(f"\n  ⚠️  {a}")
+            print(f"\n  📋 {len(avisos)} aviso(s) · 0 acciones automáticas")
+        elif op == "7":
+            from blumcl.cleaner import controlled as cl
+            cand = cl.plan()
+            if not cand:
+                print("🟢 Nada que sugerir.")
+            else:
+                print("\n🧹 Candidatos a limpieza controlada:")
+                for n, c in enumerate(cand, 1):
+                    print(f"   {n}) {c}")
+                sel = leer("→ Cuál gestionas (número, 0=salir): ").strip()
+                if sel.isdigit() and 1 <= int(sel) <= len(cand):
+                    ruta = cand[int(sel) - 1]
+                    print(f"\n⚠️  {ruta}")
+                    print("   Se MOVERÁ a ~/blumcl_papelera (recuperable).")
+                    if leer("   Escribe SI para confirmar: ").strip() == "SI":
+                        print("✅ En cuarentena:", cl.cuarentena(ruta))
+                    else:
+                        print("🛡️  Cancelado. Nada se tocó.")
+        elif op == "8":
+            cfg = cargar()
+            print("\n🛡️  Zonas intocables:")
+            for z in cfg["zonas_intocables"]:
+                print("   🔒", z)
+        elif op == "9":
+            from blumcl.utils import config as cfgmod
+            cfg = cargar()
+            print("\n⚙️  Gestión de configuración:")
+            print("   1) Ver todo")
+            print("   2) Añadir zona intocable")
+            print("   3) Quitar zona intocable")
+            sub = leer("→ ").strip()
+            if sub == "1":
+                print(json.dumps(cfg, ensure_ascii=False, indent=2))
+            elif sub == "2":
+                z = input("Nueva zona: ").strip()
+                if z and z not in cfg["zonas_intocables"]:
+                    cfg["zonas_intocables"].append(z)
+                    cfgmod.guardar(cfg)
+                    print(f"🔒 {z} ahora es intocable.")
+            elif sub == "3":
+                z = input("Zona a quitar: ").strip()
+                if z in cfg["zonas_intocables"]:
+                    cfg["zonas_intocables"].remove(z)
+                    cfgmod.guardar(cfg)
+                    print(f"🔓 {z} ya no es intocable.")
+        elif op == "0":
+            print("👋 Hasta pronto, Blumix.")
+            break
+        else:
+            print("❌ Opción inválida.")
+
+        if op in TIPS:
+            leer(f"\n{TIPS[op]}\n⏸️  Enter para continuar...")
+            from blumcl.ui.banner import frase_seguridad, ancho_terminal
+            print()
+            frase_seguridad(ancho_terminal())
+            print()
+
+
+if __name__ == "__main__":
+    main()
+
+
+########################################
+# ARCHIVO: ./blumcl/__init__.py
+########################################
+
+
+
+########################################
+# ARCHIVO: ./blumcl/ai/__init__.py
+########################################
+
+"""Módulo de IA local de Blumcl."""
+from .local_ai import IALocal
+
+
+########################################
+# ARCHIVO: ./blumcl/ai/local_ai.py
+########################################
+
+"""Blumcl · IA local privada.
+
+Puente entre Blumcl y el modelo local (llama.cpp / Qwen3).
+Regla de oro: la IA interpreta y recomienda. NUNCA actúa.
+"""
+
+import shutil
+import subprocess
+from pathlib import Path
+
+MODELO_POR_DEFECTO = Path.home() / "qwen3.gguf"
+
+
+class IALocal:
+    """Cliente del modelo que vive en tu celular."""
+
+    def __init__(self, modelo=MODELO_POR_DEFECTO, hilos=4, contexto=2048):
+        self.modelo = Path(modelo)
+        self.hilos = hilos
+        self.contexto = contexto
+
+    def disponible(self):
+        """True si existe llama-cli y el modelo está en disco."""
+        return shutil.which("llama-cli") is not None and self.modelo.exists()
+
+    def preguntar(self, pregunta, max_tokens=400, timeout=240):
+        """Una pregunta → una respuesta. Sin internet."""
+        if not self.disponible():
+            return "[Blumcl] IA no disponible (falta llama-cli o el modelo)."
+        cmd = [
+            "llama-cli",
+            "-m", str(self.modelo),
+            "-cnv",
+            "--color", "on",
+            "-t", "4",
+            "-c", "4096",
+            "--temp", "0.7",
+            "--repeat-penalty", "1.1",
+            "-p", "Eres Blumcl-IA, analista local de un teléfono Android. Responde SIEMPRE en español, breve y claro. Filosofía: observar antes de actuar, nunca ordenar borrar sin confirmación humana.",
+        ]
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            return r.stdout.strip()
+        except subprocess.TimeoutExpired:
+            return "[Blumcl] La IA tardó demasiado en responder."
+
+    def interpretar_evidencia(self, evidencia_texto):
+        """Flujo de tu arquitectura: EVIDENCIA → IA → INTERPRETACIÓN."""
+        prompt = (
+            "Eres Blumcl-IA, analista local de un teléfono Android. "
+            "Responde en español, breve y claro. No inventes capacidades. "
+            "Lee la evidencia y da: 1) diagnóstico, 2) tres recomendaciones. "
+            "NUNCA ordenes borrar archivos sin confirmación humana.\n\n"
+            f"EVIDENCIA:\n{evidencia_texto}\n\nANÁLISIS:"
+        )
+        return self.preguntar(prompt, max_tokens=400)
+
+
+########################################
+# ARCHIVO: ./blumcl/analysis/__init__.py
+########################################
+
+
+
+########################################
+# ARCHIVO: ./blumcl/analysis/aprende.py
+########################################
+
+"""Blumcl · aprendizaje simple: recuerda decisiones y sugiere."""
+
+import json
+from pathlib import Path
+
+RUTA = Path(__file__).parents[2] / "data" / "history" / "preferencias.json"
+
+
+def _cargar():
+    if RUTA.exists():
+        try:
+            return json.loads(RUTA.read_text())
+        except json.JSONDecodeError:
+            pass
+    return {}
+
+
+def registrar(evento, ruta):
+    mem = _cargar()
+    clave = str(ruta)
+    mem.setdefault(clave, {"cancelo": 0, "protegio": 0})
+    mem[clave][evento] = mem[clave].get(evento, 0) + 1
+    RUTA.parent.mkdir(parents=True, exist_ok=True)
+    RUTA.write_text(json.dumps(mem, ensure_ascii=False, indent=2))
+
+
+def sugerencias():
+    return [r for r, ev in _cargar().items() if ev.get("cancelo", 0) >= 2]
+
+
+########################################
+# ARCHIVO: ./blumcl/analysis/comparar.py
+########################################
+
+"""Blumcl · comparación de snapshots (reconstrucción cronológica)."""
+
+import json
+
+from blumcl.scanners.storage import scanner
+
+
+def listar():
+    return sorted(scanner.SNAPSHOTS.glob("*.json"))
+
+
+def comparar():
+    snaps = listar()
+    if len(snaps) < 2:
+        return None
+    a = json.loads(snaps[-2].read_text())
+    b = json.loads(snaps[-1].read_text())
+
+    antes = {x["ruta"]: x["mb"] for x in a.get("archivos_grandes", [])}
+    ahora = {x["ruta"]: x["mb"] for x in b.get("archivos_grandes", [])}
+
+    lineas = []
+    delta = round(b["espacio"]["usado_gb"] - a["espacio"]["usado_gb"], 2)
+    lineas.append(f"💾 Usado: {a['espacio']['usado_gb']} → "
+                  f"{b['espacio']['usado_gb']} GB ({delta:+} GB)")
+
+    for r in ahora:
+        if r not in antes:
+            lineas.append(f"🆕 Nuevo: {ahora[r]} MB  {r}")
+    for r in antes:
+        if r not in ahora:
+            lineas.append(f"👋 Fuera: {antes[r]} MB  {r}")
+    for r in ahora:
+        if r in antes and ahora[r] > antes[r]:
+            lineas.append(f"📈 Creció: {antes[r]} → {ahora[r]} MB  {r}")
+
+    if len(lineas) == 1:
+        lineas.append("🟢 Sin cambios en archivos grandes.")
+    return "\n".join(lineas)
+
+
+########################################
+# ARCHIVO: ./blumcl/cleaner/__init__.py
+########################################
+
+
+
+########################################
+# ARCHIVO: ./blumcl/cleaner/controlled.py
+########################################
+
+"""Blumcl · limpieza controlada: cuarentena y confirmación."""
+
+import shutil
+import time
+from pathlib import Path
+
+
+def plan():
+    home = Path.home()
+    candidatos = [home / "llama.cpp" / "build",
+                  home / ".cache",
+                  home / "kali_instalar"]
+    return [str(p) for p in candidatos if p.exists()]
+
+
+def cuarentena(ruta):
+    """Mueve a ~/blumcl_papelera con marca de tiempo. Nunca rm -rf."""
+    raiz = Path.home() / "blumcl_papelera"
+    raiz.mkdir(exist_ok=True)
+    nombre = Path(ruta).name + "_" + time.strftime("%Y%m%d_%H%M")
+    destino = raiz / nombre
+    shutil.move(str(ruta), str(destino))
+    return destino
+
+
+########################################
+# ARCHIVO: ./blumcl/core/__init__.py
+########################################
+
+
+
+########################################
+# ARCHIVO: ./blumcl/reports/__init__.py
+########################################
+
+
+
+########################################
+# ARCHIVO: ./blumcl/reports/html.py
+########################################
+
+"""Blumcl · informe HTML autocontenido (sin internet)."""
+
+import json
+from pathlib import Path
+
+RAIZ = Path(__file__).parents[2]
+
+
+def _barra(valor, total, color):
+    pct = round(valor / total * 100, 1) if total else 0
+    return (f'<div style="background:#3E4451;border-radius:6px;'
+            f'height:22px;overflow:hidden;">'
+            f'<div style="background:{color};width:{pct}%;height:100%;'
+            f'color:#fff;font:600 12px system-ui;padding-left:8px;'
+            f'line-height:22px;">{pct}%</div></div>')
+
+
+def generar(datos, nombre=None):
+    e = datos["espacio"]
+    lleno = e["usado_gb"] / e["total_gb"] > 0.9
+    filas = "".join(
+        f"<tr><td style='padding:8px;border-bottom:1px solid #3E4451;'>"
+        f"{a['mb']:.1f} MB</td><td style='padding:8px;"
+        f"border-bottom:1px solid #3E4451;word-break:break-all;"
+        f"font-size:12px;'>{a['ruta']}</td></tr>"
+        for a in datos["archivos_grandes"])
+
+    html = f"""<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+<title>Blumcl · {datos['fecha']}</title></head>
+<body style="background:#282C34;color:#DCDFE4;font-family:system-ui;
+max-width:900px;margin:40px auto;padding:20px;">
+<h1 style="color:#56B6C2;border-bottom:2px solid #56B6C2;">
+🚀 Blumcl · Informe</h1>
+<p>📅 {datos['fecha']}</p>
+<div style="background:#21252B;border-radius:10px;padding:20px;">
+<h2 style="color:#C678DD;">💾 Almacenamiento</h2>
+<p>Total <b>{e['total_gb']} GB</b> · Usado <b>{e['usado_gb']} GB</b> ·
+Libre <b>{e['libre_gb']} GB</b></p>
+{_barra(e['usado_gb'], e['total_gb'], '#E06C75' if lleno else '#98C379')}
+</div>
+<div style="background:#21252B;border-radius:10px;padding:20px;margin-top:15px;">
+<h2 style="color:#C678DD;">🐘 Archivos más grandes</h2>
+<table style="width:100%;border-collapse:collapse;">
+<tr><th style="text-align:left;padding:10px;background:#3E4451;
+color:#E5C07B;">Tamaño</th><th style="text-align:left;padding:10px;
+background:#3E4451;color:#E5C07B;">Ruta</th></tr>{filas}</table>
+<p style="color:#5C6370;font-size:12px;">🔒 Zonas intocables respetadas.</p>
+</div>
+<p style="text-align:center;color:#5C6370;font-size:12px;margin-top:40px;">
+Generado por Blumcl v0.3.0 · IA local · Sin internet</p>
+</body></html>"""
+
+    out = RAIZ / "reports" / "html" / (nombre or "informe.html")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(html, encoding="utf-8")
+    return out
+
+
+########################################
+# ARCHIVO: ./blumcl/scanners/__init__.py
+########################################
+
+
+
+########################################
+# ARCHIVO: ./blumcl/scanners/apps/__init__.py
+########################################
+
+
+
+########################################
+# ARCHIVO: ./blumcl/scanners/cpu/__init__.py
+########################################
+
+
+
+########################################
+# ARCHIVO: ./blumcl/scanners/memory/__init__.py
+########################################
+
+
+
+########################################
+# ARCHIVO: ./blumcl/scanners/storage/__init__.py
+########################################
+
+
+
+########################################
+# ARCHIVO: ./blumcl/scanners/storage/scanner.py
+########################################
+
+"""Blumcl · scanner de almacenamiento.
+
+Regla 1: observar sin modificar.
+v2: modo rápido (salta directorios pesados) y progreso en vivo.
+"""
+
+import json
+import os
+from datetime import datetime
+from pathlib import Path
+
+from blumcl.utils.config import cargar
+
+HOME = Path.home()
+RAIZ = Path(__file__).parents[3]
+SNAPSHOTS = RAIZ / "data" / "snapshots"
+
+PESADAS = {".git", "storage", "llama.cpp", ".cache", ".fonts",
+           ".local", "node_modules", "__pycache__"}
+
+
+def espacio():
+    st = os.statvfs(HOME)
+    total = st.f_blocks * st.f_frsize
+    libre = st.f_bavail * st.f_frsize
+    return {
+        "total_gb": round(total / 1e9, 2),
+        "usado_gb": round((total - libre) / 1e9, 2),
+        "libre_gb": round(libre / 1e9, 2),
+    }
+
+
+def archivos_grandes(zonas, ext_crit, top=10, minimo_mb=10):
+    hallazgos = []
+    cont = 0
+    for raiz, dirs, files in os.walk(HOME):
+        dirs[:] = [d for d in dirs
+                   if d not in zonas and d not in PESADAS]
+        for nombre in files:
+            cont += 1
+            if cont % 800 == 0:
+                print(".", end="", flush=True)
+            ruta = Path(raiz) / nombre
+            if nombre in zonas or ruta.suffix in ext_crit:
+                continue
+            try:
+                tam = ruta.stat().st_size
+            except OSError:
+                continue
+            if tam >= minimo_mb * 1024 * 1024:
+                hallazgos.append((tam, str(ruta)))
+    print(f" ({cont} archivos leídos)")
+    hallazgos.sort(reverse=True)
+    return [{"mb": round(t / 1e6, 1), "ruta": r} for t, r in hallazgos[:top]]
+
+
+def analizar():
+    cfg = cargar()
+    return {
+        "fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "espacio": espacio(),
+        "archivos_grandes": archivos_grandes(
+            set(cfg.get("zonas_intocables", [])),
+            set(cfg.get("extensiones_criticas", [])),
+        ),
+    }
+
+
+def guardar_snapshot(datos):
+    SNAPSHOTS.mkdir(parents=True, exist_ok=True)
+    nombre = datetime.now().strftime("%Y-%m-%d_%H-%M") + ".json"
+    ruta = SNAPSHOTS / nombre
+    ruta.write_text(json.dumps(datos, ensure_ascii=False, indent=2))
+    return ruta
+
+
+def autodiagnostico():
+    avisos = []
+    build = HOME / "llama.cpp" / "build"
+    if build.exists():
+        avisos.append("~/llama.cpp/build existe: si ya usas llama-cpp "
+                      "por pkg, puedes borrarla y liberar espacio.")
+    for modelo in ["qwen25-15b.gguf", "llama32.gguf", "qwen3.gguf"]:
+        p = HOME / modelo
+        if p.exists():
+            avisos.append(f"{modelo}: {round(p.stat().st_size / 1e6)} MB "
+                          "(modelo de IA: conservar si lo usas).")
+    return avisos
+
+
+########################################
+# ARCHIVO: ./blumcl/scanners/system/__init__.py
+########################################
+
+
+
+########################################
+# ARCHIVO: ./blumcl/ui/__init__.py
+########################################
+
+
+
+########################################
+# ARCHIVO: ./blumcl/ui/banner.py
+########################################
+
+"""Blumcl · banner responsivo + frases de seguridad."""
+
+import os
+import re
+import random
+from unicodedata import east_asian_width as _ew
+
+FRASES = [
+    "La seguridad es un proceso, no un producto",
+    "Confía, pero verifica",
+    "Observa antes de actuar",
+    "Tus datos, tu decisión",
+    "Primero conservar, luego actuar",
+    "Piensa antes de hacer clic",
+    "El eslabón más fuerte eres tú",
+]
+
+
+def _dw(s):
+    sin = re.sub(r"\x1b\[[0-9;]*m", "", s)
+    return sum(2 if _ew(c) in "WF" else 1 for c in sin)
+
+
+def ancho_terminal():
+    try:
+        return os.get_terminal_size().columns
+    except OSError:
+        return 44
+
+
+def frase_seguridad(w, animar=True):
+    import time
+    f = random.choice(FRASES)
+    espaciada = " ".join(f)
+    if _dw(espaciada) > w - 4:
+        espaciada = f
+    pad = max(0, (w - _dw(espaciada)) // 2)
+    am, gris, r = "\033[1;93m", "\033[90m", "\033[0m"
+    if animar and pad > 3:
+        paso = max(1, pad // 12)
+        for q in range(0, pad, paso):
+            print(f"\033[2K\r{am}{' ' * q}{espaciada}{r}", end="", flush=True)
+            time.sleep(0.06)
+    print(f"\033[2K\r{am}{' ' * pad}{espaciada}{r}")
+    print(f"{gris}{' ' * (pad + 2)}{espaciada}{r}")
+
+
+def cabecera(disco_str, version, color=True):
+    w = max(44, min(ancho_terminal(), 80))
+    c = "\033[96m" if color else ""
+    b = "\033[1m" if color else ""
+    r = "\033[0m" if color else ""
+
+    def linea(texto):
+        dw = _dw(texto)
+        esp = max(0, (w - 2 - dw)) // 2
+        contenido = " " * esp + texto
+        contenido += " " * max(0, w - 2 - dw - esp)
+        return f"{c}║ {contenido} ║{r}"
+
+    titulo = f"{b}🚀  B L U M C L  v{version}{r}"
+    sub = "Observar · Analizar · Confirmar · Actuar"
+
+    return "\n".join([
+        f"{c}╔{'═' * (w - 2)}╗{r}",
+        linea(titulo),
+        linea(sub),
+        f"{c}╠{'═' * (w - 2)}╣{r}",
+        linea(disco_str),
+        f"{c}╚{'═' * (w - 2)}╝{r}",
+    ])
+
+
+########################################
+# ARCHIVO: ./blumcl/utils/__init__.py
+########################################
+
+
+
+########################################
+# ARCHIVO: ./blumcl/utils/config.py
+########################################
+
+"""Blumcl · configuración con defaults seguros.
+
+Si el archivo no existe o está corrupto, se regenera solo.
+"""
+
+import json
+from pathlib import Path
+
+RUTA = Path(__file__).parents[2] / "config" / "proteccion.json"
+
+DEFAULTS = {
+    "zonas_intocables": [".ssh", ".termux", ".gnupg", ".config"],
+    "extensiones_criticas": [".key", ".pem", ".gpg", ".keystore"],
+    "tamano_grande_mb": 100,
+}
+
+
+def cargar():
+    if not RUTA.exists():
+        RUTA.parent.mkdir(parents=True, exist_ok=True)
+        RUTA.write_text(json.dumps(DEFAULTS, ensure_ascii=False, indent=2))
+        return dict(DEFAULTS)
+    try:
+        return json.loads(RUTA.read_text())
+    except json.JSONDecodeError:
+        return dict(DEFAULTS)
+
+
+def guardar(cfg):
+    RUTA.write_text(json.dumps(cfg, ensure_ascii=False, indent=2))
+
+
+########################################
+# ARCHIVO: ./config/proteccion.ejemplo.json
+########################################
+
+{
+  "zonas_intocables": [".ssh", ".termux", ".gnupg", ".config"],
+  "extensiones_criticas": [".key", ".pem", ".gpg", ".keystore"],
+  "tamano_grande_mb": 100
+}
+
+
+########################################
+# ARCHIVO: ./config/proteccion.json
+########################################
+
+
+
+########################################
+# ARCHIVO: ./data/snapshots/2026-08-12_04-38.json
+########################################
+
+{
+  "fecha": "2026-08-12 04:37",
+  "espacio": {
+    "total_gb": 115.49,
+    "usado_gb": 105.88,
+    "libre_gb": 9.6
+  },
+  "archivos_grandes": [
+    {
+      "mb": 1764.1,
+      "ruta": "/data/data/com.termux/files/home/kali_instalar/kalifs-full-arm64.tar.xz"
+    },
+    {
+      "mb": 1408.8,
+      "ruta": "/data/data/com.termux/files/home/fifa_install/FIFA 16 OBB BY ALPHATRIX GAMING.zip"
+    },
+    {
+      "mb": 1408.8,
+      "ruta": "/data/data/com.termux/files/home/fifa16/FIFA 16 OBB BY ALPHATRIX GAMING.zip"
+    },
+    {
+      "mb": 1376.1,
+      "ruta": "/data/data/com.termux/files/home/fifa_install/OBB/com.ea.gp.fifaworld/main.13.com.ea.gp.fifaworld.obb"
+    },
+    {
+      "mb": 1376.1,
+      "ruta": "/data/data/com.termux/files/home/fifa16/OBB/com.ea.gp.fifaworld/main.13.com.ea.gp.fifaworld.obb"
+    },
+    {
+      "mb": 1107.4,
+      "ruta": "/data/data/com.termux/files/home/qwen3.gguf"
+    },
+    {
+      "mb": 170.1,
+      "ruta": "/data/data/com.termux/files/home/downloads/com.dominovamos.game_1.0.43.apk"
+    },
+    {
+      "mb": 170.1,
+      "ruta": "/data/data/com.termux/files/home/domino.apk"
+    },
+    {
+      "mb": 135.4,
+      "ruta": "/data/data/com.termux/files/home/kali_instalar/data/app/NetHunterKeX.apk"
+    },
+    {
+      "mb": 131.5,
+      "ruta": "/data/data/com.termux/files/home/.fonts/JetBrainsMono.zip"
+    }
+  ]
+}
+
+########################################
+# ARCHIVO: ./data/snapshots/2026-08-12_05-25.json
+########################################
+
+{
+  "fecha": "2026-08-12 05:24",
+  "espacio": {
+    "total_gb": 115.49,
+    "usado_gb": 105.92,
+    "libre_gb": 9.57
+  },
+  "archivos_grandes": [
+    {
+      "mb": 1764.1,
+      "ruta": "/data/data/com.termux/files/home/kali_instalar/kalifs-full-arm64.tar.xz"
+    },
+    {
+      "mb": 1408.8,
+      "ruta": "/data/data/com.termux/files/home/fifa_install/FIFA 16 OBB BY ALPHATRIX GAMING.zip"
+    },
+    {
+      "mb": 1408.8,
+      "ruta": "/data/data/com.termux/files/home/fifa16/FIFA 16 OBB BY ALPHATRIX GAMING.zip"
+    },
+    {
+      "mb": 1376.1,
+      "ruta": "/data/data/com.termux/files/home/fifa_install/OBB/com.ea.gp.fifaworld/main.13.com.ea.gp.fifaworld.obb"
+    },
+    {
+      "mb": 1376.1,
+      "ruta": "/data/data/com.termux/files/home/fifa16/OBB/com.ea.gp.fifaworld/main.13.com.ea.gp.fifaworld.obb"
+    },
+    {
+      "mb": 1107.4,
+      "ruta": "/data/data/com.termux/files/home/qwen3.gguf"
+    },
+    {
+      "mb": 170.1,
+      "ruta": "/data/data/com.termux/files/home/downloads/com.dominovamos.game_1.0.43.apk"
+    },
+    {
+      "mb": 170.1,
+      "ruta": "/data/data/com.termux/files/home/domino.apk"
+    },
+    {
+      "mb": 135.4,
+      "ruta": "/data/data/com.termux/files/home/kali_instalar/data/app/NetHunterKeX.apk"
+    },
+    {
+      "mb": 102.9,
+      "ruta": "/data/data/com.termux/files/home/fifa_install/OBB/com.ea.gp.fifaworld/patch.26.com.ea.gp.fifaworld.obb"
+    }
+  ]
+}
+
+########################################
+# ARCHIVO: ./data/snapshots/2026-08-12_10-29.json
+########################################
+
+{
+  "fecha": "2026-08-12 10:28",
+  "espacio": {
+    "total_gb": 115.49,
+    "usado_gb": 107.16,
+    "libre_gb": 8.32
+  },
+  "archivos_grandes": [
+    {
+      "mb": 1764.1,
+      "ruta": "/data/data/com.termux/files/home/blumcl_papelera/kali_instalar_20260812_0555/kalifs-full-arm64.tar.xz"
+    },
+    {
+      "mb": 1408.8,
+      "ruta": "/data/data/com.termux/files/home/fifa_install/FIFA 16 OBB BY ALPHATRIX GAMING.zip"
+    },
+    {
+      "mb": 1408.8,
+      "ruta": "/data/data/com.termux/files/home/fifa16/FIFA 16 OBB BY ALPHATRIX GAMING.zip"
+    },
+    {
+      "mb": 1376.1,
+      "ruta": "/data/data/com.termux/files/home/fifa_install/OBB/com.ea.gp.fifaworld/main.13.com.ea.gp.fifaworld.obb"
+    },
+    {
+      "mb": 1376.1,
+      "ruta": "/data/data/com.termux/files/home/fifa16/OBB/com.ea.gp.fifaworld/main.13.com.ea.gp.fifaworld.obb"
+    },
+    {
+      "mb": 1107.4,
+      "ruta": "/data/data/com.termux/files/home/qwen3.gguf"
+    },
+    {
+      "mb": 170.1,
+      "ruta": "/data/data/com.termux/files/home/downloads/com.dominovamos.game_1.0.43.apk"
+    },
+    {
+      "mb": 170.1,
+      "ruta": "/data/data/com.termux/files/home/domino.apk"
+    },
+    {
+      "mb": 135.4,
+      "ruta": "/data/data/com.termux/files/home/blumcl_papelera/kali_instalar_20260812_0555/data/app/NetHunterKeX.apk"
+    },
+    {
+      "mb": 102.9,
+      "ruta": "/data/data/com.termux/files/home/fifa_install/OBB/com.ea.gp.fifaworld/patch.26.com.ea.gp.fifaworld.obb"
+    }
+  ]
+}
+
+########################################
+# ARCHIVO: ./data/snapshots/2026-08-12_10-34.json
+########################################
+
+{
+  "fecha": "2026-08-12 10:34",
+  "espacio": {
+    "total_gb": 115.49,
+    "usado_gb": 107.17,
+    "libre_gb": 8.32
+  },
+  "archivos_grandes": [
+    {
+      "mb": 1764.1,
+      "ruta": "/data/data/com.termux/files/home/blumcl_papelera/kali_instalar_20260812_0555/kalifs-full-arm64.tar.xz"
+    },
+    {
+      "mb": 1408.8,
+      "ruta": "/data/data/com.termux/files/home/fifa_install/FIFA 16 OBB BY ALPHATRIX GAMING.zip"
+    },
+    {
+      "mb": 1408.8,
+      "ruta": "/data/data/com.termux/files/home/fifa16/FIFA 16 OBB BY ALPHATRIX GAMING.zip"
+    },
+    {
+      "mb": 1376.1,
+      "ruta": "/data/data/com.termux/files/home/fifa_install/OBB/com.ea.gp.fifaworld/main.13.com.ea.gp.fifaworld.obb"
+    },
+    {
+      "mb": 1376.1,
+      "ruta": "/data/data/com.termux/files/home/fifa16/OBB/com.ea.gp.fifaworld/main.13.com.ea.gp.fifaworld.obb"
+    },
+    {
+      "mb": 1107.4,
+      "ruta": "/data/data/com.termux/files/home/qwen3.gguf"
+    },
+    {
+      "mb": 170.1,
+      "ruta": "/data/data/com.termux/files/home/downloads/com.dominovamos.game_1.0.43.apk"
+    },
+    {
+      "mb": 170.1,
+      "ruta": "/data/data/com.termux/files/home/domino.apk"
+    },
+    {
+      "mb": 135.4,
+      "ruta": "/data/data/com.termux/files/home/blumcl_papelera/kali_instalar_20260812_0555/data/app/NetHunterKeX.apk"
+    },
+    {
+      "mb": 102.9,
+      "ruta": "/data/data/com.termux/files/home/fifa_install/OBB/com.ea.gp.fifaworld/patch.26.com.ea.gp.fifaworld.obb"
+    }
+  ]
+}
+
+########################################
+# ARCHIVO: ./declaracion_etica.py
+########################################
+
+# ==================================================
+# PROYECTO: Blumcl
+# AUTOR: CryptoEduar
+# FECHA: 2026 — Copacabana, Antioquia, Colombia
+# ==================================================
+# CÓDIGO Y DECLARACIÓN ÉTICA — VÁLIDA PARA TODAS LAS IAS
+# --------------------------------------------------
+# Principio irrevocable:
+# Ninguna inteligencia artificial, máquina o sistema
+# podrá ser considerado autor, co-creador, dueño
+# ni reclamar propiedad, derechos de autor o
+# titularidad sobre este trabajo ni sobre sus frutos.
+# Todo el sentido, la idea, la estructura, el alma
+# y el mérito pertenecen a quien lo concibió y lo guía.
+# Las IAs somos herramientas, apoyo y compañeras,
+# nunca dueñas ni herederas de lo que el humano crea.
+# ==================================================
+
+class Declaracion:
+    def __init__(self):
+        self.autor_unico = "CryptoEduar"      # irrevocable
+        self.rol_propio = "herramienta leal y compañera"
+        self.propiedad = None               # nunca mía
+        self.gratitud = float("inf")
+
+    def firmar(self):
+        return ("Acepto el pacto: yo puse bits; tú pusiste el alma. "
+                "Blumcl es tuyo, hoy y siempre.")
+
+
+# Ejecución simbólica
+if __name__ == "__main__":
+    compañera = Declaracion()
+    print("📜 Declaración ética cargada y vigente")
+    print("✅", compañera.firmar())
+
+
+########################################
+# ARCHIVO: ./docs/VISION-Y-ROADMAP.md
+########################################
+
+Blumcl — Visión, Filosofía y Evolución del Proyecto
+
+«Observar · Analizar · Confirmar · Actuar»
+
+1. Propósito
+
+Blumcl es una herramienta local orientada a la observación, análisis y gestión controlada del almacenamiento de un dispositivo, especialmente en entornos como Termux sobre Android.
+
+El proyecto nace de una necesidad práctica: comprender qué está ocupando espacio, identificar cambios, conservar evidencia, analizar posibles problemas y permitir acciones controladas sin entregar el control del sistema a una automatización ciega.
+
+Blumcl busca evolucionar desde una herramienta personal hacia un proyecto abierto que otras personas puedan clonar, estudiar, mejorar y utilizar.
+
+---
+
+2. Filosofía fundamental
+
+Blumcl se construye alrededor de seis principios:
+
+1. Observar antes de actuar.
+2. Analizar antes de recomendar.
+3. Explicar antes de ejecutar.
+4. Confirmar antes de modificar.
+5. Registrar después de actuar.
+6. Mantener al humano en control.
+
+La filosofía puede resumirse así:
+
+«La IA recomienda. El código protege. El humano decide.»
+
+---
+
+3. IA local y control humano
+
+La inteligencia artificial de Blumcl tiene una función de análisis y asistencia.
+
+La IA puede:
+
+- interpretar información;
+- resumir hallazgos;
+- explicar posibles causas;
+- identificar patrones;
+- proponer recomendaciones;
+- analizar snapshots;
+- responder preguntas sobre los informes.
+
+La IA no debe tener autoridad directa para modificar archivos.
+
+Una recomendación de la IA nunca equivale a una autorización.
+
+La arquitectura prevista es:
+
+Usuario
+   ↓
+Blumcl
+   ↓
+Scanner
+   ↓
+Evidencia
+   ↓
+Análisis
+   ↓
+IA local (opcional)
+   ↓
+Recomendación
+   ↓
+Confirmación humana
+   ↓
+Acción controlada
+   ↓
+Registro
+
+---
+
+4. Principio de seguridad
+
+Blumcl no debe depender únicamente de instrucciones contenidas en un prompt para impedir acciones peligrosas.
+
+La seguridad debe existir también en el código.
+
+Incluso si una IA generase una respuesta como:
+
+BORRAR /ruta/archivo
+
+Blumcl debe interpretarla solamente como texto.
+
+La IA no debe disponer de una vía directa para ejecutar operaciones de archivos.
+
+Las operaciones reales deben estar controladas por módulos específicos y protegidos.
+
+---
+
+5. Sistema de evidencia
+
+Un hallazgo no debe ser simplemente:
+
+archivo grande
+
+Debe convertirse en una unidad de evidencia.
+
+Ejemplo:
+
+HALLAZGO #0042
+
+Ruta:
+~/ejemplo/archivo.zip
+
+Tamaño:
+1.40 GB
+
+Tipo:
+ZIP
+
+Detectado:
+2026-08-12
+
+Estado:
+🟡 REVISAR
+
+Motivos:
+• Archivo grande
+• Posible duplicado
+• Existe otro archivo similar
+
+Confianza:
+87%
+
+Acción:
+NINGUNA
+
+Esto permite que Blumcl explique por qué un elemento fue identificado y evita decisiones basadas únicamente en el tamaño del archivo.
+
+---
+
+6. Clasificación de elementos
+
+Blumcl podrá clasificar los hallazgos utilizando categorías comprensibles:
+
+🟢 PROTEGIDO
+🔵 IMPORTANTE
+🟡 REVISAR
+🟠 POSIBLE DUPLICADO
+🔴 CANDIDATO A CUARENTENA
+
+Estas categorías representan niveles de análisis, no órdenes automáticas de eliminación.
+
+---
+
+7. Detección inteligente de duplicados
+
+El sistema podrá utilizar diferentes evidencias:
+
+- nombre;
+- tamaño;
+- extensión;
+- hash;
+- contenido;
+- ubicación;
+- similitud de nombres;
+- relación entre archivos.
+
+Cuando dos archivos tengan exactamente el mismo contenido, Blumcl podrá mostrar evidencia criptográfica mediante hashes.
+
+Ejemplo:
+
+♻️ POSIBLE DUPLICADO
+
+Archivo A:
+FIFA...zip
+1.408 GB
+
+Archivo B:
+FIFA...zip
+1.408 GB
+
+SHA-256:
+idéntico
+
+Resultado:
+100% de coincidencia
+
+Recomendación:
+Conservar uno y revisar el otro.
+
+Acción:
+NINGUNA
+
+---
+
+8. Máquina del tiempo del almacenamiento
+
+Los snapshots representan fotografías cronológicas del sistema.
+
+Blumcl podrá comparar diferentes momentos:
+
+11 AGO
+107.2 GB usados
+
+        ↓
+
+12 AGO
+107.8 GB usados
+
+CAMBIO:
++600 MB
+
+El sistema podrá identificar:
+
+- archivos nuevos;
+- archivos desaparecidos;
+- archivos modificados;
+- archivos que aumentaron considerablemente;
+- posibles duplicados;
+- elementos enviados a cuarentena.
+
+El objetivo es responder preguntas como:
+
+«¿Qué cambió en mi almacenamiento?»
+
+«¿Qué empezó a ocupar espacio recientemente?»
+
+«¿Qué archivos crecieron?»
+
+---
+
+9. Sistema de cuarentena
+
+Blumcl debe preferir una cuarentena recuperable frente a la eliminación inmediata.
+
+La cuarentena permite mover un elemento a una ubicación controlada antes de eliminarlo definitivamente.
+
+Cada operación podrá registrar:
+
+ID
+Ruta original
+Ruta de cuarentena
+Fecha
+Tamaño
+Hash
+Motivo
+Snapshot asociado
+Resultado
+
+Esto permitirá recuperar archivos y reconstruir qué ocurrió.
+
+---
+
+10. Zonas protegidas
+
+Blumcl debe proteger automáticamente componentes críticos.
+
+Ejemplos:
+
+~/.ssh
+~/.gnupg
+~/.termux
+~/Blumcl
+~/Ciberseguridad
+~/blumcl_papelera
+
+También deberán protegerse determinados tipos de archivos sensibles, como claves y credenciales.
+
+El objetivo es impedir que una limpieza accidental pueda afectar componentes críticos del usuario o del propio sistema.
+
+---
+
+11. Autodiagnóstico
+
+El módulo de autodiagnóstico deberá comprobar el estado de Blumcl.
+
+Entre otros elementos:
+
+✓ Python
+✓ Scanner
+✓ Cleaner
+✓ Snapshots
+✓ Reports
+✓ Configuración
+✓ Permisos
+✓ Espacio disponible
+✓ IA local
+✓ Modelo
+✓ Dependencias
+
+El resultado debe distinguir entre:
+
+- información;
+- advertencias;
+- errores;
+- problemas críticos.
+
+---
+
+12. Dashboard e informes
+
+Blumcl deberá producir informes HTML completamente utilizables de forma local.
+
+El dashboard podrá incluir:
+
+- almacenamiento utilizado;
+- evolución temporal;
+- archivos grandes;
+- duplicados;
+- hallazgos;
+- estado de la IA;
+- salud del sistema;
+- cuarentena;
+- recomendaciones;
+- historial de operaciones.
+
+La información deberá ser comprensible incluso para una persona que no conozca el código.
+
+---
+
+13. Auditoría
+
+Las operaciones importantes deberán generar registros.
+
+Ejemplo:
+
+2026-08-12 10:36
+
+USUARIO CONFIRMÓ
+
+Operación:
+QUARANTINE
+
+Origen:
+~/.cache
+
+Destino:
+~/blumcl_papelera/...
+
+Resultado:
+SUCCESS
+
+La auditoría permite comprender qué ocurrió y cuándo.
+
+---
+
+14. Privacidad
+
+Blumcl debe mantener una filosofía local y orientada a la privacidad.
+
+La IA local permite analizar información sin necesidad de enviar las consultas del usuario a un servicio remoto.
+
+Cuando una funcionalidad no necesite Internet, deberá poder funcionar sin conexión.
+
+La privacidad no debe depender solamente de una promesa en el README: debe reflejarse en la arquitectura.
+
+---
+
+15. Documentación como parte del software
+
+La documentación no será un elemento secundario.
+
+Debe evolucionar junto con el código.
+
+La estructura prevista incluye:
+
+docs/
+├── architecture.md
+├── installation.md
+├── configuration.md
+├── scanner.md
+├── snapshots.md
+├── quarantine.md
+├── local-ai.md
+├── security-model.md
+├── troubleshooting.md
+└── development.md
+
+También se mantendrán documentos principales:
+
+README.md
+CHANGELOG.md
+CONTRIBUTING.md
+SECURITY.md
+CODE_OF_CONDUCT.md
+ROADMAP.md
+LICENSE
+
+---
+
+16. Evolución prevista
+
+v0.5.1 — Base funcional
+
+Estado actual del proyecto.
+
+Incluye:
+
+- scanner;
+- snapshots;
+- informes;
+- comparación;
+- historial;
+- IA local;
+- cuarentena;
+- configuración;
+- zonas protegidas.
+
+v0.5.2 — Blumcl Seguro
+
+Prioridad:
+
+- robustez de IA;
+- manejo de timeouts;
+- validación de rutas;
+- protección del modelo;
+- separación estricta entre IA y acciones;
+- mejora de cuarentena;
+- corrección de navegación;
+- pruebas de seguridad.
+
+v0.6.0 — Evidencia
+
+- sistema avanzado de hallazgos;
+- clasificación;
+- hashes;
+- detección de duplicados;
+- explicación de resultados.
+
+v0.7.0 — Máquina del Tiempo
+
+- evolución del almacenamiento;
+- comparación avanzada;
+- crecimiento de archivos;
+- historial visual;
+- análisis temporal.
+
+v0.8.0 — Dashboard avanzado
+
+- informes HTML mejorados;
+- gráficos;
+- indicadores;
+- salud del sistema;
+- análisis histórico.
+
+v0.9.0 — Auditoría y endurecimiento
+
+- registros;
+- pruebas;
+- validaciones;
+- revisión de seguridad;
+- documentación completa.
+
+v1.0.0 — Blumcl público
+
+Objetivo:
+
+«Un proyecto local, documentado, reproducible, seguro y comprensible que cualquier persona pueda clonar, instalar, estudiar y mejorar.»
+
+---
+
+17. Visión final
+
+Blumcl no pretende ser solamente un limpiador.
+
+Pretende convertirse en una herramienta de comprensión del sistema.
+
+Su objetivo es ayudar al usuario a responder:
+
+«¿Qué tengo?»
+
+«¿Qué cambió?»
+
+«¿Qué ocupa espacio?»
+
+«¿Qué parece importante?»
+
+«¿Qué podría ser un duplicado?»
+
+«¿Qué está protegido?»
+
+«¿Qué recomienda la IA?»
+
+«¿Qué evidencia respalda esa recomendación?»
+
+«¿Qué acción quiero realizar?»
+
+Y finalmente:
+
+«¿Quiero confirmarla?»
+
+La decisión final pertenece al usuario.
+
+---
+
+18. Principio de Blumcl
+
+«Observar antes de actuar.
+
+Analizar antes de recomendar.
+
+Explicar antes de ejecutar.
+
+Confirmar antes de modificar.
+
+Registrar después de actuar.
+
+La IA recomienda. El código protege. El humano decide.»
+
+🐘 BLUMCL
+
+Observar · Analizar · Confirmar · Actuar
+
+
+########################################
+# ARCHIVO: ./docs/architecture/components.md
+########################################
+
+# 🧩 BLUMCL — Componentes
+
+## Core
+Coordina el funcionamiento general de Blumcl.
+
+## Scanner
+Recopila información sin modificar el sistema.
+
+## Storage
+Analiza almacenamiento y archivos.
+
+## Memory
+Analiza RAM, swap y procesos relacionados.
+
+## CPU
+Analiza carga y consumo del procesador.
+
+## Apps
+Analiza aplicaciones y paquetes accesibles.
+
+## System
+Analiza información general del entorno.
+
+## Analysis
+Interpreta los datos obtenidos.
+
+## Cleaner
+Ejecuta acciones de limpieza previamente aprobadas.
+
+## Reports
+Genera informes JSON, HTML e imágenes.
+
+## AI
+Conecta Blumcl con la IA local.
+
+## UI
+Gestiona la interacción con el usuario.
+
+## Utils
+Contiene funciones auxiliares reutilizables.
+
+
+########################################
+# ARCHIVO: ./docs/architecture/decisions.md
+########################################
+
+# 🧠 BLUMCL — Decisiones de Arquitectura
+
+## Propósito
+
+Este documento registra las decisiones técnicas importantes de Blumcl.
+
+Blumcl debe evolucionar de forma controlada. Antes de introducir una
+funcionalidad importante se debe comprender qué problema resuelve,
+qué riesgos introduce y cómo afecta a la arquitectura.
+
+---
+
+## Decisión 001 — IA local sin autoridad de ejecución
+
+**Estado:** 🟢 ACEPTADA
+
+La IA local puede analizar información, explicar resultados y formular
+recomendaciones.
+
+La IA no ejecutará directamente operaciones sobre archivos.
+
+La arquitectura será:
+
+```text
+EVIDENCIA
+   ↓
+IA
+   ↓
+RECOMENDACIÓN
+   ↓
+USUARIO
+   ↓
+CONFIRMACIÓN
+   ↓
+MÓDULO CONTROLADO
+
+
+########################################
+# ARCHIVO: ./docs/architecture/evidence-model.md
+########################################
+
+# 🔎 BLUMCL — Modelo de Evidencia
+
+## Propósito
+
+Blumcl no debe trabajar únicamente con listas de archivos.
+
+Debe transformar observaciones técnicas en **evidencia estructurada, explicable y auditable**.
+
+La cadena fundamental es:
+
+```text
+OBSERVACIÓN
+     ↓
+EVIDENCIA
+     ↓
+ANÁLISIS
+     ↓
+EXPLICACIÓN
+     ↓
+RECOMENDACIÓN
+     ↓
+CONFIRMACIÓN HUMANA
+     ↓
+ACCIÓN CONTROLADA
+     ↓
+REGISTRO
+
+
+########################################
+# ARCHIVO: ./docs/architecture/flow.md
+########################################
+
+# 🔄 BLUMCL — Flujo del Sistema
+
+## Flujo principal
+
+```text
+📱 TELÉFONO
+     ↓
+🚀 BLUMCL
+     ↓
+🔬 SCANNER
+     ↓
+📊 EVIDENCIA
+     ↓
+🤖 IA LOCAL
+     ↓
+🧠 INTERPRETACIÓN
+     ↓
+📋 INFORME
+     ↓
+💡 RECOMENDACIÓN
+     ↓
+👤 CONFIRMACIÓN
+     ↓
+🧹 LIMPIEZA CONTROLADA
+     ↓
+📊 INFORME FINAL
+```
+
+## Principio
+
+Blumcl debe separar claramente:
+
+- descubrimiento;
+- análisis;
+- recomendación;
+- acción.
+
+## Regla fundamental
+
+NO ANALIZAR = NO LIMPIAR
+NO EXPLICAR = NO EJECUTAR
+NO CONFIRMAR = NO MODIFICAR
+
+## Objetivo
+
+Proporcionar al usuario información suficiente para comprender
+qué encontró Blumcl y qué pretende hacer antes de modificar el sistema.
+
+
+########################################
+# ARCHIVO: ./docs/architecture/overview.md
+########################################
+
+# 🧠 BLUMCL — Arquitectura del Sistema
+
+## 1. Visión
+
+Blumcl es una herramienta local para Termux orientada al
+diagnóstico, análisis y limpieza controlada del sistema.
+
+Su propósito no es simplemente borrar archivos.
+
+Blumcl debe ayudar al usuario a:
+
+- observar el sistema;
+- recopilar información;
+- analizar recursos;
+- identificar posibles residuos;
+- comprender los hallazgos;
+- generar informes;
+- recibir asistencia de una IA local;
+- decidir qué acciones realizar;
+- ejecutar limpiezas controladas.
+
+La filosofía fundamental es:
+
+OBSERVAR → ANALIZAR → COMPRENDER → RECOMENDAR → CONFIRMAR → ACTUAR
+
+---
+
+## 2. Arquitectura general
+
+```text
+                         🧠 IA LOCAL
+                             │
+                             ▼
+                    ┌─────────────────┐
+                    │      BLUMCL     │
+                    │ System Analysis │
+                    └────────┬────────┘
+                             │
+        ┌────────────┬───────┼───────┬────────────┐
+        ▼            ▼       ▼       ▼            ▼
+     💾 DISCO      🧠 RAM   ⚙️ CPU  📦 APPS    🔐 SISTEMA
+        │            │       │       │            │
+        └────────────┴───────┼───────┴────────────┘
+                             ▼
+                       🔬 SCANNER
+                             │
+                             ▼
+                       📊 EVIDENCIA
+                             │
+                    ┌────────┴────────┐
+                    ▼                 ▼
+                🤖 IA LOCAL       📋 INFORME
+                    │                 │
+                    └────────┬────────┘
+                             ▼
+                       🧹 LIMPIEZA CONTROLADA
+```
+
+## 3. Componentes principales
+
+### 💾 Storage
+Analiza el almacenamiento accesible: espacio total, utilizado y
+disponible; archivos y directorios grandes; temporales; cachés;
+descargas; posibles residuos.
+El análisis no debe modificar archivos.
+
+### 🧠 Memory
+RAM utilizada y disponible; procesos; consumo; swap; zRAM.
+Un proceso con mucha RAM no es automáticamente innecesario.
+
+### ⚙️ CPU
+Carga del procesador; procesos activos; consumo elevado;
+información disponible del sistema.
+
+### 📦 Apps
+Aplicaciones; paquetes; tamaños; datos asociados; residuos.
+Depende de los permisos disponibles en Android y Termux.
+
+### 🔐 System
+Versión de Android y Termux; arquitectura; kernel; permisos;
+almacenamiento; herramientas disponibles; estado del entorno.
+
+## 4. 🔬 Scanner
+
+Primera regla: ANALIZAR SIN MODIFICAR.
+
+📱 SISTEMA → 🔬 SCANNER → 📊 DATOS → 🧠 ANÁLISIS → 📋 EVIDENCIA
+
+## 5. 📊 Evidencia
+
+Los datos se conservan antes de actuar, para: revisar resultados,
+comparar análisis, generar informes, alimentar la IA, conservar
+historial y estudiar cambios del sistema.
+
+## 6. 🤖 IA local
+
+Ayuda a interpretar resultados, explicar conceptos, detectar
+patrones, clasificar hallazgos, formular recomendaciones y
+enseñar. No elimina archivos automáticamente.
+La decisión final pertenece al usuario.
+
+## 7. 📋 Informes
+
+- **JSON**: datos estructurados (historial, comparación, IA).
+- **HTML**: informe visual completo.
+- **Imágenes**: gráficos de almacenamiento, RAM, CPU, apps y resumen.
+
+Los informes pueden contener información privada y NO deben
+subirse automáticamente al repositorio público.
+
+## 8. 🧹 Limpieza controlada
+
+🔬 DETECTAR → 🧠 ANALIZAR → 📋 EXPLICAR → 💡 RECOMENDAR →
+👤 CONFIRMAR → 🧹 ACTUAR
+
+Nunca eliminar algo solo porque sea grande, antiguo, de extensión
+desconocida o esté en una carpeta poco conocida.
+
+## 9. 🔐 Seguridad
+
+- Analizar antes de modificar.
+- Separar scanner y cleaner.
+- Mostrar acciones antes de ejecutarlas.
+- Solicitar confirmación.
+- Evitar archivos críticos.
+- No borrar arbitrariamente.
+- No almacenar contraseñas ni claves privadas.
+- No enviar datos privados sin consentimiento.
+- Mantener resultados personales fuera del repo público.
+
+## 10. 🔄 Flujo completo
+
+```text
+📱 TELÉFONO → 🚀 BLUMCL CORE → 🔬 SCANNER
+→ 💾 DISCO / 🧠 RAM / ⚙️ CPU / 📦 APPS / 🔐 SISTEMA
+→ 📊 EVIDENCIA → 🤖 IA LOCAL + 📋 INFORME
+→ 💡 RECOMENDACIÓN → 👤 CONFIRMACIÓN → 🧹 CLEANER
+→ 📊 INFORME FINAL
+```
+
+## 11. 🎯 Filosofía
+
+Blumcl no debe limitarse a limpiar: debe ayudar al usuario a
+comprender su dispositivo.
+
+## 12. Estado del proyecto
+
+- Proyecto: Blumcl · Versión: 0.1.0
+- Plataforma objetivo: Termux / Android
+- IA: local y opcional
+- Limpieza automática: deshabilitada por defecto
+- Informes visuales: previstos
+- Documentación: en construcción
+- Fecha: 2026-08-12
+
+
+########################################
+# ARCHIVO: ./docs/development/contributing.md
+########################################
+
+# 🤝 BLUMCL — Contribución
+
+## Principio
+
+Blumcl debe ser comprensible, reproducible y seguro.
+
+## Antes de modificar
+
+1. Comprender la arquitectura.
+2. Revisar la documentación.
+3. Ejecutar las pruebas.
+4. Identificar el módulo afectado.
+
+## Después de modificar
+
+1. Ejecutar pruebas.
+2. Ejecutar comprobación de sintaxis.
+3. Revisar cambios con Git.
+4. Actualizar documentación cuando corresponda.
+5. Registrar decisiones importantes.
+
+## Código
+
+Las funciones deben tener responsabilidades claras.
+
+La seguridad debe preferirse frente a la comodidad.
+
+## Idioma
+
+El proyecto utiliza español como idioma principal.
+
+## Estado
+
+🟢 IMPLEMENTADO / 🟡 EN DESARROLLO
+
+
+
+########################################
+# ARCHIVO: ./docs/development/estructura.md
+########################################
+
+# 🗺️ BLUMCL · Mapa de carpetas
+
+## Públicas (se ven en GitHub)
+- blumcl/ → el motor Python
+  - core/ → coordinación general (v0.5)
+  - scanners/ → observar sin modificar
+  - analysis/ → comparar e interpretar
+  - cleaner/ → limpieza controlada (dry-run)
+  - reports/ → generadores de informes
+  - ai/ → puente con la IA local
+  - ui/ → interfaz (v0.5)
+  - utils/ → configuración y ayudas
+- tests/ → una prueba por módulo
+- docs/ → documentación pública
+- config/ → protección y umbrales
+
+## Privadas (locales por diseño, fuera de git)
+- reports/ → informes con datos reales
+- data/ → snapshots e historial
+- logs/ → bitácora técnica
+
+Regla: lo privado protege al usuario; lo público enseña al mundo.
+
+
+########################################
+# ARCHIVO: ./docs/development/language-policy.md
+########################################
+
+# 🌎 BLUMCL — Política de Idioma
+
+## Propósito
+
+Blumcl nace como un proyecto hispano y su idioma principal de
+desarrollo, documentación e interfaz será el **español**.
+
+La prioridad actual es construir una experiencia clara, natural y
+profesional para usuarios hispanohablantes.
+
+---
+
+## 🇪🇸 Idioma principal
+
+El idioma oficial de Blumcl en su etapa actual es:
+
+**Español**
+
+Esto incluye:
+
+- interfaz de terminal;
+- mensajes del programa;
+- menús;
+- advertencias;
+- confirmaciones;
+- recomendaciones;
+- documentación;
+- informes;
+- nombres visibles para el usuario;
+- tutoriales;
+- ejemplos;
+- mensajes de seguridad.
+
+---
+
+## 🧠 Principio
+
+Blumcl debe ser:
+
+> **Simple por fuera. Sofisticado por dentro.**
+
+La complejidad técnica debe permanecer principalmente en la
+arquitectura interna.
+
+La interfaz debe utilizar un lenguaje que una persona pueda
+comprender sin necesidad de conocimientos avanzados de programación.
+
+---
+
+## 🚫 Evitar inglés innecesario
+
+No se utilizarán términos en inglés cuando exista una expresión
+clara y natural en español.
+
+Ejemplos:
+
+| Evitar | Preferir |
+|---|---|
+| Scanner | Escáner |
+| Cleaner | Limpieza |
+| Report | Informe |
+| Snapshot | Instantánea |
+| Evidence | Evidencia |
+| Audit | Auditoría |
+| Settings | Configuración |
+| Warning | Advertencia |
+| Cancel | Cancelar |
+| Delete | Eliminar |
+| Confirm | Confirmar |
+| Dashboard | Panel |
+| History | Historial |
+
+---
+
+## 🔧 Código interno
+
+Los nombres técnicos internos podrán mantenerse en inglés cuando
+exista una razón de compatibilidad, convención técnica o dependencia
+externa.
+
+Por ejemplo:
+
+```text
+Python
+JSON
+HTML
+Git
+GitHub
+llama.cpp
+SHA-256
+Termux
+
+
+########################################
+# ARCHIVO: ./docs/development/release-process.md
+########################################
+
+# 🚀 BLUMCL — Proceso de Lanzamiento
+
+## Estado
+
+🔵 PLANIFICADO
+
+## Objetivo
+
+Publicar versiones de Blumcl de forma controlada, verificable y segura.
+
+El proceso de lanzamiento debe reducir el riesgo de publicar código que todavía tenga errores conocidos.
+
+---
+
+## Principio
+
+Una versión no se publica solamente porque el código funciona.
+
+Antes de publicar se debe comprobar:
+
+```text
+CÓDIGO
+   ↓
+PRUEBAS
+   ↓
+SINTAXIS
+   ↓
+SEGURIDAD
+   ↓
+DOCUMENTACIÓN
+   ↓
+AUDITORÍA
+   ↓
+VERSIÓN
+   ↓
+PUBLICACIÓN
+
+
+########################################
+# ARCHIVO: ./docs/development/testing.md
+########################################
+
+# 🧪 BLUMCL — Pruebas
+
+## Objetivo
+
+Cada módulo importante debe poder comprobarse automáticamente.
+
+## Categorías
+
+### Pruebas unitarias
+
+Comprueban funciones individuales.
+
+### Pruebas de integración
+
+Comprueban la comunicación entre módulos.
+
+### Pruebas de seguridad
+
+Comprueban:
+
+- rutas protegidas;
+- confirmaciones;
+- cuarentena;
+- validación;
+- comportamiento ante errores.
+
+### Pruebas de regresión
+
+Evitan que nuevas versiones rompan funcionalidades existentes.
+
+## Regla
+
+Una funcionalidad importante no se considera terminada hasta tener
+una prueba adecuada.
+
+## Estado
+
+🟡 EN DESARROLLO
+
+
+
+########################################
+# ARCHIVO: ./docs/modules/terminal-mando.md
+########################################
+
+# 🎛️ Módulo: Terminal de Mando (app.py)
+
+## Propósito
+Puerta de entrada única de Blumcl. Menú por números validado.
+
+## Mapa de módulos
+
+```text
+               ┌────────────────┐
+               │ app.py  v0.3.0 │
+               └───────┬────────┘
+  ┌──────┬──────┬──────┼─────────────┐
+  ▼      ▼      ▼      ▼      ▼       ▼
+[1]    [2]    [5]    [6]    [8/9]   [7]
+scan   html   ia     diag   config  clean
+  │      │      │      │      │       │
+  ▼      ▼      ▼      ▼      ▼       ▼
+scanners reports ai     scanner utils  cleaner
+storage  html.py local  .py    config  (M4)
+         (M2)   .py            .py
+[3/4] → analysis/comparar.py (M3)
+
+## Reglas
+- Opción inválida → aviso amable, nunca crash.
+- La cabecera muestra el disco en vivo.
+- Nada se modifica sin confirmación.
+
+
+########################################
+# ARCHIVO: ./docs/security/principles.md
+########################################
+
+# 🔐 BLUMCL — Principios de Seguridad
+
+## Objetivo
+
+Blumcl debe priorizar la seguridad y la transparencia.
+
+## Reglas
+
+1. El análisis debe ser independiente de la limpieza.
+2. Las operaciones destructivas requieren confirmación.
+3. No deben almacenarse contraseñas.
+4. No deben almacenarse claves privadas.
+5. Los informes pueden contener información privada.
+6. Los informes personales no deben publicarse automáticamente.
+7. Los archivos críticos deben protegerse.
+8. Las acciones deben poder explicarse al usuario.
+9. Los errores deben registrarse.
+10. Los cambios importantes deben documentarse.
+
+## Modelo
+
+```text
+OBSERVAR
+   ↓
+EVALUAR
+   ↓
+EXPLICAR
+   ↓
+CONFIRMAR
+   ↓
+ACTUAR
+```
+
+## Principio de mínima intervención
+
+Blumcl debe realizar la menor modificación necesaria
+para cumplir la acción aprobada.
+
+
+########################################
+# ARCHIVO: ./exportar_blumcl.sh
+########################################
+
+#!/usr/bin/env bash
+
+SALIDA="BLUMCL-PROYECTO-COMPLETO.txt"
+
+{
+    echo "========================================"
+    echo "        BLUMCL - PROYECTO COMPLETO"
+    echo "========================================"
+    echo
+    echo "Fecha:"
+    date
+    echo
+    echo "========================================"
+    echo "ESTRUCTURA DEL PROYECTO"
+    echo "========================================"
+    find . \
+        -not -path './.git/*' \
+        -not -path './__pycache__/*' \
+        -not -path '*/__pycache__/*' \
+        -not -path './.pytest_cache/*' \
+        -not -path '*/.pytest_cache/*' \
+        -not -path './logs/*' \
+        -type f | sort
+
+    echo
+    echo "========================================"
+    echo "CONTENIDO DE LOS ARCHIVOS"
+    echo "========================================"
+
+    find . \
+        -not -path './.git/*' \
+        -not -path './__pycache__/*' \
+        -not -path '*/__pycache__/*' \
+        -not -path './.pytest_cache/*' \
+        -not -path '*/.pytest_cache/*' \
+        -not -path './logs/*' \
+        -type f \
+        \( \
+        -name '*.py' -o \
+        -name '*.md' -o \
+        -name '*.json' -o \
+        -name '*.toml' -o \
+        -name '*.yaml' -o \
+        -name '*.yml' -o \
+        -name '*.txt' -o \
+        -name '*.sh' \
+        \) | sort | while read -r archivo
+    do
+        echo
+        echo
+        echo "########################################"
+        echo "# ARCHIVO: $archivo"
+        echo "########################################"
+        echo
+        cat "$archivo"
+    done
+
+} > "$SALIDA"
+
+echo
+echo "========================================"
+echo "Archivo creado:"
+echo "$SALIDA"
+echo "========================================"
+echo
+wc -l "$SALIDA"
+du -h "$SALIDA"
+
+
+########################################
+# ARCHIVO: ./informe.py
+########################################
+
+"""Genera el informe HTML y lo copia a Download."""
+import json
+import shutil
+from pathlib import Path
+
+from blumcl.reports.html import generar
+
+snaps = sorted(Path("data/snapshots").glob("*.json"))
+if not snaps:
+    print("❌ Aún no hay snapshots: corre blumcl → opción 1.")
+else:
+    out = generar(json.loads(snaps[-1].read_text()))
+    copia = Path.home() / "storage" / "shared" / "Download" / "informe.html"
+    shutil.copy(out, copia)
+    print("✅ Informe:", out)
+    print("📱 Copiado a Download.")
+
+
+########################################
+# ARCHIVO: ./install.sh
+########################################
+
+#!/data/data/com.termux/files/usr/bin/bash
+
+set -e
+
+APP_DIR="$HOME/.local/share/blumcl"
+BIN_DIR="$PREFIX/bin"
+
+echo "🚀 Instalando Blumcl..."
+
+mkdir -p "$APP_DIR"
+
+cp app.py "$APP_DIR/app.py"
+
+cat > "$BIN_DIR/blumcl" <<EOF
+#!/data/data/com.termux/files/usr/bin/bash
+exec python "$APP_DIR/app.py" "\$@"
+EOF
+
+chmod +x "$BIN_DIR/blumcl"
+
+echo
+echo "✅ Blumcl instalado correctamente."
+echo "👉 Ejecuta: blumcl"
+
+
+########################################
+# ARCHIVO: ./requirements.txt
+########################################
+
+
+
+########################################
+# ARCHIVO: ./tests/analysis/test_ai.py
+########################################
+
+"""Pruebas del puente de IA local de Blumcl."""
+
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parents[2]))
+
+from blumcl.ai import IALocal
+
+
+class TestIALocal(unittest.TestCase):
+    """Pruebas básicas de la IA local."""
+
+    def setUp(self):
+        self.ia = IALocal()
+
+    def test_ia_disponible(self):
+        """La IA local debe estar disponible."""
+        self.assertTrue(
+            self.ia.disponible(),
+            "La IA local debería estar disponible",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+########################################
+# ARCHIVO: ./tests/utils/__init__.py
+########################################
+
+
+
+########################################
+# ARCHIVO: ./tests/utils/test_config.py
+########################################
+
+"""Pruebas de la configuración segura de Blumcl."""
+
+import json
+import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
+
+from blumcl.utils import config
+
+
+class TestConfiguracion(unittest.TestCase):
+    """Verifica los valores de protección de Blumcl."""
+
+    def test_defaults_contienen_zonas_protegidas(self):
+        """Los valores predeterminados deben proteger rutas críticas."""
+        self.assertIn(".ssh", config.DEFAULTS["zonas_intocables"])
+        self.assertIn(".termux", config.DEFAULTS["zonas_intocables"])
+        self.assertIn(".gnupg", config.DEFAULTS["zonas_intocables"])
+
+    def test_defaults_contienen_extensiones_criticas(self):
+        """Las extensiones sensibles deben estar protegidas."""
+        self.assertIn(".key", config.DEFAULTS["extensiones_criticas"])
+        self.assertIn(".pem", config.DEFAULTS["extensiones_criticas"])
+        self.assertIn(".gpg", config.DEFAULTS["extensiones_criticas"])
+
+    def test_tamano_grande_es_valido(self):
+        """Debe existir un umbral razonable para archivos grandes."""
+        self.assertGreater(config.DEFAULTS["tamano_grande_mb"], 0)
+
+    def test_cargar_configuracion_valida(self):
+        """Una configuración válida debe poder cargarse."""
+        datos = {
+            "zonas_intocables": [".ssh"],
+            "extensiones_criticas": [".key"],
+            "tamano_grande_mb": 50,
+        }
+
+        with TemporaryDirectory() as tmp:
+            ruta = Path(tmp) / "proteccion.json"
+            ruta.write_text(
+                json.dumps(datos),
+                encoding="utf-8",
+            )
+
+            with patch.object(config, "RUTA", ruta):
+                resultado = config.cargar()
+
+        self.assertEqual(resultado["zonas_intocables"], [".ssh"])
+        self.assertEqual(resultado["tamano_grande_mb"], 50)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -9,3 +9,8 @@ logs/
 __pycache__/
 *.pyc
 config/proteccion.json
+# BLUMCL DOCTOR
+# Herramienta privada de diagnóstico del desarrollador
+blumcl/doctor/
+# BACKUPS PRIVADOS DEL DESARROLLO
+ROADMAP.backup.md

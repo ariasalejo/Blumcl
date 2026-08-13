@@ -8,6 +8,7 @@ Principios:
     - No modifica el sistema.
     - No ejecuta acciones destructivas.
     - Devuelve datos estructurados.
+    - Puede convertir la observación en Evidence auditable.
 """
 
 from __future__ import annotations
@@ -15,6 +16,12 @@ from __future__ import annotations
 import os
 import platform
 from dataclasses import dataclass
+
+from blumcl.core.evidence import (
+    Evidence,
+    EvidenceCategory,
+    EvidenceSource,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,7 +75,48 @@ def scan() -> CPUInfo:
     )
 
 
+def generar_evidencia_cpu(
+    info: CPUInfo,
+    *,
+    sequence: int,
+    snapshot_id: str | None = None,
+) -> Evidence:
+    """
+    Convierte una observación CPU en Evidence auditable.
+
+    Esta función NO modifica el sistema.
+    Solamente transforma datos observados en el modelo
+    central de evidencia de BLUMCL.
+    """
+
+    evidence = Evidence.create(
+        sequence=sequence,
+        path="cpu://local",
+        source=EvidenceSource.CPU_SCANNER,
+        category=EvidenceCategory.REVIEW,
+        snapshot_id=snapshot_id,
+        recommendation="Revisar la información observada de la CPU.",
+        metadata={
+            "architecture": info.architecture,
+            "processor": info.processor,
+            "logical_cpus": info.logical_cpus,
+        },
+    )
+
+    evidence.add_reason(
+        "CPU_OBSERVED",
+        (
+            f"CPU observada: arquitectura={info.architecture}, "
+            f"procesador={info.processor}, "
+            f"CPUs lógicas={info.logical_cpus}."
+        ),
+    )
+
+    return evidence
+
+
 __all__ = [
     "CPUInfo",
+    "generar_evidencia_cpu",
     "scan",
 ]

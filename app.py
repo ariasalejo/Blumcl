@@ -51,28 +51,43 @@ MENU = """
 
 ROBOTS = [
     [
-        "   ┌───┐   ",
-        "   │o o│   ",
-        "   │ ─ │   ",
-        "   └┬─┬┘   ",
-        " ┌──┘ └──┐ ",
-        " ~│     │  ",
-        "  │     │  ",
-        "  └──┬──┘  ",
-        "  ┌──┴──┐  ",
-        "  └─────┘  ",
+        "        ╭──────╮        ",
+        "        │ ◉  ◉ │        ",
+        "        │  ╲╱  │        ",
+        "     ╭──┴──────┴──╮     ",
+        "     │  BLUMIX   │      ",
+        " ╭───┤   CORE    ├───╮  ",
+        " │   ╰────┬─────╯   │  ",
+        " │        │         │  ",
+        " ╰────┬───┴───┬─────╯  ",
+        "      ╰───┬───╯        ",
+        "          ╰             ",
     ],
     [
-        "   ┌───┐   ",
-        "   │o o│   ",
-        "   │ ─ │   ",
-        "   └┬─┬┘   ",
-        " ┌──┘ └──┐ ",
-        " │     │~  ",
-        " │     │   ",
-        "  └──┬──┘  ",
-        "  ┌──┴──┐  ",
-        "  └─────┘  ",
+        "        ╭──────╮        ",
+        "        │ ●  ● │        ",
+        "        │  ──  │        ",
+        "     ╭──┴──────┴──╮     ",
+        "     │  BLUMCL    │     ",
+        " ╭───┤   AI CORE  ├───╮ ",
+        " │   ╰────┬───────╯   │ ",
+        " │     ╭──┴──╮        │ ",
+        " ╰─────┤ ╲╱  ├────────╯ ",
+        "       ╰──┬──╯          ",
+        "          ╰             ",
+    ],
+    [
+        "        ╭──────╮        ",
+        "        │ ◉  ◉ │        ",
+        "        │  ▔▔  │        ",
+        "   ╭────┴──────┴────╮   ",
+        "   │   B L U M I X  │   ",
+        "╭──┤    SECURITY    ├──╮",
+        "│  ╰──────┬─────────╯  │",
+        "│       ╭─┴─╮          │",
+        "╰───────┤ ◇ ├──────────╯",
+        "        ╰─┬─╯           ",
+        "          ╵             ",
     ],
 ]
 
@@ -112,11 +127,25 @@ def menu_con_robot():
     return "\n".join(MENU_CORTO.strip("\n").split("\n"))
 
 
+def seccion(titulo):
+    from blumcl.ui.banner import ancho_terminal
+    w = ancho_terminal()
+    print()
+    print(f"\033[96m{'─' * w}\033[0m")
+    print(f"\033[1m  {titulo}\033[0m")
+    print(f"\033[96m{'─' * w}\033[0m")
+
+
+def leer(prompt):
+    """Reset de color ANSI antes de pedir entrada: nunca letra invisible."""
+    return input("\033[0m" + prompt)
+
+
 def ofrecer_reporte(datos):
     from blumcl.reports.html import generar
     out = generar(datos)
     print("📄 Reporte generado:", out)
-    if input("📥 ¿Descargar tu reporte? (y/n): ").strip().lower() == "y":
+    if leer("📥 ¿Descargar tu reporte? (y/n): ").strip().lower() == "y":
         copia = Path.home() / "storage" / "shared" / "Download" / "informe.html"
         shutil.copy(out, copia)
         print("✅ En Download → Archivos → Download → informe.html → Chrome.")
@@ -127,7 +156,7 @@ def main():
     while True:
         cabecera()
         print(menu_con_robot())
-        op = input("→ ").strip()
+        op = leer("→ ").strip()
 
         if op == "1":
             print("\n🔬 Observando (sin modificar)...")
@@ -142,7 +171,7 @@ def main():
             snap = scanner.guardar_snapshot(datos)
             print(f"\n📊 Snapshot: {snap.name}")
             ofrecer_reporte(datos)
-            if input("🤖 ¿Análisis de la IA? (s/n): ").strip().lower() == "s":
+            if leer("🤖 ¿Análisis de la IA? (s/n): ").strip().lower() == "s":
                 print(ia.interpretar_evidencia(
                     json.dumps(datos, ensure_ascii=False)))
         elif op == "2":
@@ -162,13 +191,18 @@ def main():
             for s in snaps:
                 print("   📊", s.name)
         elif op == "5":
-            q = input("Tu pregunta: ").strip()
+            q = leer("Tu pregunta: ").strip()
             if q:
                 print("\n🤖 Pensando...\n")
                 print(ia.preguntar(q, 300))
         elif op == "6":
-            for a in scanner.autodiagnostico():
-                print("⚠️ ", a)
+            seccion("🩺 AUTODIAGNÓSTICO")
+            avisos = scanner.autodiagnostico()
+            if not avisos:
+                print("\n  🟢 Sin avisos: todo en orden.")
+            for a in avisos:
+                print(f"\n  ⚠️  {a}")
+            print(f"\n  📋 {len(avisos)} aviso(s) · 0 acciones automáticas")
         elif op == "7":
             from blumcl.cleaner import controlled as cl
             cand = cl.plan()
@@ -178,12 +212,12 @@ def main():
                 print("\n🧹 Candidatos a limpieza controlada:")
                 for n, c in enumerate(cand, 1):
                     print(f"   {n}) {c}")
-                sel = input("→ Cuál gestionas (número, 0=salir): ").strip()
+                sel = leer("→ Cuál gestionas (número, 0=salir): ").strip()
                 if sel.isdigit() and 1 <= int(sel) <= len(cand):
                     ruta = cand[int(sel) - 1]
                     print(f"\n⚠️  {ruta}")
                     print("   Se MOVERÁ a ~/blumcl_papelera (recuperable).")
-                    if input("   Escribe SI para confirmar: ").strip() == "SI":
+                    if leer("   Escribe SI para confirmar: ").strip() == "SI":
                         print("✅ En cuarentena:", cl.cuarentena(ruta))
                     else:
                         print("🛡️  Cancelado. Nada se tocó.")
@@ -199,7 +233,7 @@ def main():
             print("   1) Ver todo")
             print("   2) Añadir zona intocable")
             print("   3) Quitar zona intocable")
-            sub = input("→ ").strip()
+            sub = leer("→ ").strip()
             if sub == "1":
                 print(json.dumps(cfg, ensure_ascii=False, indent=2))
             elif sub == "2":
@@ -221,7 +255,7 @@ def main():
             print("❌ Opción inválida.")
 
         if op in TIPS:
-            input(f"\n{TIPS[op]}\n⏸️  Enter para continuar...")
+            leer(f"\n{TIPS[op]}\n⏸️  Enter para continuar...")
             from blumcl.ui.banner import frase_seguridad, ancho_terminal
             print()
             frase_seguridad(ancho_terminal())

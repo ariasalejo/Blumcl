@@ -21,7 +21,7 @@ limpieza controlada del sistema, con IA 100% local y privada.
 ## 📱 Instalación
 
     pkg install python git
-    git clone <TU-REPO> && cd Blumcl
+    git clone https://github.com/ariasalejo/Blumcl.git && cd Blumcl
     blumcl
 
 ## 🎛️ Uso
@@ -52,3 +52,21 @@ Hecho con ❤️ en Medellín.
 ## 🚧 Estado
 
 v0.5.1 · desarrollo activo · construido en un teléfono
+
+## 📦 Dependencias
+
+```text
+(ninguna — 100% librería estándar de Python)
+```
+
+## ⚡ Instalación en 4 líneas
+
+```bash
+pkg install git python
+git clone https://github.com/ariasalejo/Blumcl.git
+cd Blumcl && bash install.sh
+blumcl
+```
+
+El instalador crea el comando global `blumcl` (wrapper en `$PREFIX/bin`).
+🤖 IA local opcional: `pkg install llama.cpp` + modelo (~1.1 GB). Blumcl funciona 100% sin ella.

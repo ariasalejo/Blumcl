@@ -6,19 +6,34 @@ Principios:
     - Observar sin modificar.
     - Generar evidencia estructurada.
     - Respetar rutas protegidas.
+    - Integrar el Snapshot oficial de BLUMCL.
     - No eliminar ni mover archivos.
     - Mantener compatibilidad con el formato anterior.
     - Mostrar telemetría real durante el análisis.
+
+Arquitectura:
+
+    Storage Scanner
+          ↓
+    Observaciones
+          ↓
+       Evidence
+          ↓
+       Snapshot
+          ↓
+    Resultado normalizado
+
+La función ``analizar()`` mantiene el formato histórico para
+compatibilidad con código existente.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Any
 
 from blumcl.core.evidence import (
     Evidence,
@@ -26,6 +41,7 @@ from blumcl.core.evidence import (
     EvidenceSource,
     evidence_from_file,
 )
+from blumcl.core.snapshot import Snapshot
 from blumcl.utils.config import cargar
 
 
@@ -34,6 +50,8 @@ RAIZ = Path(__file__).parents[3]
 SNAPSHOTS = RAIZ / "data" / "snapshots"
 
 
+# Directorios que no se recorren durante este scanner.
+# Esto evita recorridos innecesariamente pesados.
 PESADAS = {
     ".git",
     "storage",
@@ -47,7 +65,7 @@ PESADAS = {
 
 
 def espacio() -> dict[str, float]:
-    """Obtiene información del espacio del sistema de archivos."""
+    """Obtiene información real del espacio del sistema de archivos."""
 
     st = os.statvfs(HOME)
 
@@ -80,7 +98,7 @@ def _normalizar_zonas(
                 ruta.resolve(strict=False)
             )
 
-        except (OSError, RuntimeError):
+        except (OSError, RuntimeError, TypeError):
             continue
 
     return resultado
@@ -96,6 +114,8 @@ def _esta_protegida(
         ruta = ruta.resolve(strict=False)
 
     except (OSError, RuntimeError):
+        # Ante una ruta que no podemos resolver con seguridad,
+        # se considera protegida.
         return True
 
     for zona in zonas:
@@ -112,11 +132,11 @@ def _esta_protegida(
 def _confianza_archivo_grande(
     tamano_bytes: int,
 ) -> float:
-    """
-    Estima confianza de que un archivo merezca revisión
-    únicamente por su tamaño.
+    """Estima confianza de que un archivo merezca revisión.
 
-    No representa certeza de que deba eliminarse.
+    La confianza se basa únicamente en el tamaño.
+
+    No representa certeza de que el archivo deba eliminarse.
     """
 
     gb = tamano_bytes / 1e9
@@ -145,12 +165,7 @@ def _mostrar_progreso(
     protegidos: int,
     omitidos: int,
 ) -> None:
-    """
-    Muestra telemetría compacta del escaneo.
-
-    No calcula porcentajes ficticios porque el número total
-    de archivos no se conoce hasta terminar el recorrido.
-    """
+    """Muestra telemetría compacta del escaneo."""
 
     mensaje = (
         f"\r\033[2K"
@@ -168,15 +183,14 @@ def _mostrar_progreso(
 
 
 def archivos_grandes(
-    zonas,
-    ext_crit,
+    zonas: Iterable[str],
+    ext_crit: Iterable[str],
     top: int = 10,
     minimo_mb: int = 10,
-) -> list[dict]:
-    """
-    Encuentra archivos grandes.
+) -> list[dict[str, Any]]:
+    """Encuentra archivos grandes.
 
-    Conserva el formato histórico de BLUMCL:
+    Mantiene el formato histórico:
 
         [
             {
@@ -188,7 +202,7 @@ def archivos_grandes(
     No modifica ningún archivo.
     """
 
-    hallazgos = []
+    hallazgos: list[tuple[int, str]] = []
 
     cont = 0
     protegidos = 0
@@ -196,102 +210,118 @@ def archivos_grandes(
 
     zonas_normalizadas = _normalizar_zonas(zonas)
 
+    extensiones_criticas = {
+        str(extension).lower()
+        for extension in ext_crit
+    }
+
     print()
     print("   🔬 Iniciando recorrido...")
     print()
 
-    for raiz, dirs, files in os.walk(HOME):
+    try:
+        for raiz, dirs, files in os.walk(HOME):
 
-        raiz_path = Path(raiz)
+            raiz_path = Path(raiz)
 
-        # Evitar directorios pesados y protegidos.
-        dirs_filtradas = []
+            # Evitar directorios pesados y protegidos.
+            dirs_filtradas: list[str] = []
 
-        for directorio in dirs:
+            for directorio in dirs:
 
-            ruta_directorio = raiz_path / directorio
-
-            if directorio in PESADAS:
-                omitidos += 1
-                continue
-
-            if _esta_protegida(
-                ruta_directorio,
-                zonas_normalizadas,
-            ):
-                protegidos += 1
-                continue
-
-            dirs_filtradas.append(directorio)
-
-        dirs[:] = dirs_filtradas
-
-        for nombre in files:
-
-            cont += 1
-
-            ruta = raiz_path / nombre
-
-            if _esta_protegida(
-                ruta,
-                zonas_normalizadas,
-            ):
-                protegidos += 1
-
-                if cont % 250 == 0:
-                    _mostrar_progreso(
-                        cont,
-                        len(hallazgos),
-                        protegidos,
-                        omitidos,
-                    )
-
-                continue
-
-            if ruta.suffix.lower() in ext_crit:
-                omitidos += 1
-
-                if cont % 250 == 0:
-                    _mostrar_progreso(
-                        cont,
-                        len(hallazgos),
-                        protegidos,
-                        omitidos,
-                    )
-
-                continue
-
-            try:
-                tam = ruta.stat().st_size
-
-            except OSError:
-                omitidos += 1
-
-                if cont % 250 == 0:
-                    _mostrar_progreso(
-                        cont,
-                        len(hallazgos),
-                        protegidos,
-                        omitidos,
-                    )
-
-                continue
-
-            if tam >= minimo_mb * 1024 * 1024:
-                hallazgos.append(
-                    (
-                        tam,
-                        str(ruta),
-                    )
+                ruta_directorio = (
+                    raiz_path / directorio
                 )
 
-            if cont % 250 == 0:
-                _mostrar_progreso(
-                    cont,
-                    len(hallazgos),
-                    protegidos,
-                    omitidos,
-                )
+                if directorio in PESADAS:
+                    omitidos += 1
+                    continue
+
+                if _esta_protegida(
+                    ruta_directorio,
+                    zonas_normalizadas,
+                ):
+                    protegidos += 1
+                    continue
+
+                dirs_filtradas.append(directorio)
+
+            dirs[:] = dirs_filtradas
+
+            for nombre in files:
+
+                cont += 1
+
+                ruta = raiz_path / nombre
+
+                if _esta_protegida(
+                    ruta,
+                    zonas_normalizadas,
+                ):
+                    protegidos += 1
+
+                    if cont % 250 == 0:
+                        _mostrar_progreso(
+                            cont,
+                            len(hallazgos),
+                            protegidos,
+                            omitidos,
+                        )
+
+                    continue
+
+                if (
+                    ruta.suffix.lower()
+                    in extensiones_criticas
+                ):
+                    omitidos += 1
+
+                    if cont % 250 == 0:
+                        _mostrar_progreso(
+                            cont,
+                            len(hallazgos),
+                            protegidos,
+                            omitidos,
+                        )
+
+                    continue
+
+                try:
+                    tamano = ruta.stat().st_size
+
+                except OSError:
+                    omitidos += 1
+
+                    if cont % 250 == 0:
+                        _mostrar_progreso(
+                            cont,
+                            len(hallazgos),
+                            protegidos,
+                            omitidos,
+                        )
+
+                    continue
+
+                if tamano >= minimo_mb * 1024 * 1024:
+                    hallazgos.append(
+                        (
+                            tamano,
+                            str(ruta),
+                        )
+                    )
+
+                if cont % 250 == 0:
+                    _mostrar_progreso(
+                        cont,
+                        len(hallazgos),
+                        protegidos,
+                        omitidos,
+                    )
+
+    except OSError:
+        # El scanner es observacional. Si el recorrido falla,
+        # conserva los hallazgos obtenidos hasta ese momento.
+        pass
 
     # Limpiar la línea de progreso.
     print(
@@ -307,7 +337,8 @@ def archivos_grandes(
     )
 
     hallazgos.sort(
-        reverse=True
+        key=lambda item: item[0],
+        reverse=True,
     )
 
     return [
@@ -323,15 +354,15 @@ def archivos_grandes(
 
 
 def generar_evidencias_archivos_grandes(
-    hallazgos: list[dict],
+    hallazgos: list[dict[str, Any]],
     *,
     sequence_start: int = 1,
     snapshot_id: str | None = None,
 ) -> list[Evidence]:
-    """
-    Convierte los hallazgos tradicionales en Evidence.
+    """Convierte hallazgos tradicionales en Evidence.
 
     Solamente observa y estructura información.
+
     No ejecuta ninguna acción.
     """
 
@@ -339,9 +370,13 @@ def generar_evidencias_archivos_grandes(
 
     for offset, hallazgo in enumerate(hallazgos):
 
-        ruta = Path(
-            hallazgo["ruta"]
-        )
+        try:
+            ruta = Path(
+                hallazgo["ruta"]
+            )
+
+        except (KeyError, TypeError):
+            continue
 
         try:
             evidence = evidence_from_file(
@@ -382,37 +417,200 @@ def generar_evidencias_archivos_grandes(
     return evidencias
 
 
-def analizar() -> dict:
-    """
-    Ejecuta un análisis de almacenamiento.
+def _siguiente_sequence(
+    snapshot_id: str | None = None,
+) -> int:
+    """Obtiene una secuencia segura para Snapshot.
 
-    Mantiene las claves históricas y añade evidencia estructurada.
+    Actualmente utiliza los snapshots existentes para intentar
+    continuar la numeración BLUMCL-S-XXXXXX.
+
+    Si no puede determinarse una secuencia, comienza en 1.
+
+    Esta función solamente inspecciona archivos de snapshot.
+    """
+
+    max_sequence = 0
+
+    if not SNAPSHOTS.exists():
+        return 1
+
+    try:
+        for archivo in SNAPSHOTS.glob("*.json"):
+
+            try:
+                datos = json.loads(
+                    archivo.read_text(
+                        encoding="utf-8"
+                    )
+                )
+
+            except (
+                OSError,
+                UnicodeDecodeError,
+                json.JSONDecodeError,
+            ):
+                continue
+
+            identificador = datos.get(
+                "snapshot_id"
+            )
+
+            if not isinstance(
+                identificador,
+                str,
+            ):
+                continue
+
+            prefijo = "BLUMCL-S-"
+
+            if not identificador.startswith(
+                prefijo
+            ):
+                continue
+
+            numero = identificador[
+                len(prefijo):
+            ]
+
+            if numero.isdigit():
+                max_sequence = max(
+                    max_sequence,
+                    int(numero),
+                )
+
+    except OSError:
+        return 1
+
+    return max_sequence + 1
+
+
+def crear_snapshot(
+    *,
+    hallazgos: list[dict[str, Any]],
+    evidencias: list[Evidence],
+    sequence: int | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> Snapshot:
+    """Construye el Snapshot oficial de BLUMCL.
+
+    Este es el nuevo camino arquitectónico:
+
+        hallazgos
+            ↓
+        Evidence
+            ↓
+        Snapshot.create()
+            ↓
+        SnapshotFile
+        Evidence
+            ↓
+        Snapshot
+
+    No modifica ningún archivo analizado.
+    """
+
+    datos_espacio = espacio()
+
+    if sequence is None:
+        sequence = _siguiente_sequence()
+
+    total_bytes = int(
+        datos_espacio["total_gb"] * 1e9
+    )
+
+    used_bytes = int(
+        datos_espacio["usado_gb"] * 1e9
+    )
+
+    free_bytes = int(
+        datos_espacio["libre_gb"] * 1e9
+    )
+
+    snapshot = Snapshot.create(
+        sequence=sequence,
+        total_bytes=total_bytes,
+        used_bytes=used_bytes,
+        free_bytes=free_bytes,
+        metadata={
+            "scanner": "storage",
+            "scanner_version": "2.2",
+            "home": str(HOME),
+            "hallazgos_count": len(
+                hallazgos
+            ),
+            **(metadata or {}),
+        },
+    )
+
+    # Registrar los archivos observados.
+    for hallazgo in hallazgos:
+
+        try:
+            ruta = Path(
+                hallazgo["ruta"]
+            )
+
+        except (KeyError, TypeError):
+            continue
+
+        try:
+            stat = ruta.stat()
+
+        except OSError:
+            continue
+
+        snapshot.add_file(
+            path=str(ruta),
+            size_bytes=stat.st_size,
+        )
+
+    # Registrar evidencia asociada.
+    for evidence in evidencias:
+
+        # Evidence puede venir ya asociado a un snapshot
+        # histórico. En ese caso no podemos reasignarlo
+        # silenciosamente.
+        if evidence.snapshot_id is None:
+            evidence.snapshot_id = (
+                snapshot.snapshot_id
+            )
+
+        if (
+            evidence.snapshot_id
+            != snapshot.snapshot_id
+        ):
+            # No asociamos silenciosamente evidencia de otro
+            # snapshot.
+            continue
+
+        snapshot.add_evidence(
+            evidence
+        )
+
+    return snapshot
+
+
+def analizar_snapshot(
+    *,
+    sequence: int | None = None,
+) -> Snapshot:
+    """Ejecuta el scanner y devuelve el Snapshot oficial.
+
+    Esta es la nueva API recomendada para código nuevo.
+
+    ``analizar()`` permanece disponible para compatibilidad.
     """
 
     cfg = cargar()
 
-    fecha = datetime.now(
-        timezone.utc
-    ).isoformat()
-
-    snapshot_id = (
-        "BLUMCL-S-"
-        + datetime.now(
-            timezone.utc
-        ).strftime(
-            "%Y%m%d%H%M%S"
-        )
-    )
-
-    zonas = set(
-        cfg.get(
-            "zonas_intocables",
-            [],
-        )
+    zonas = cfg.get(
+        "zonas_intocables",
+        [],
     )
 
     extensiones = {
-        extension.lower()
+        str(extension).lower()
         for extension in cfg.get(
             "extensiones_criticas",
             [],
@@ -435,25 +633,85 @@ def analizar() -> dict:
     evidencias = generar_evidencias_archivos_grandes(
         hallazgos,
         sequence_start=1,
-        snapshot_id=snapshot_id,
+        snapshot_id=None,
     )
+
+    return crear_snapshot(
+        hallazgos=hallazgos,
+        evidencias=evidencias,
+        sequence=sequence,
+        metadata={
+            "threshold_mb": minimo_mb,
+            "protected_zones": [
+                str(zona)
+                for zona in zonas
+            ],
+            "critical_extensions": sorted(
+                extensiones
+            ),
+        },
+    )
+
+
+def analizar() -> dict[str, Any]:
+    """Ejecuta un análisis de almacenamiento.
+
+    Mantiene las claves históricas:
+
+        fecha
+        snapshot_id
+        espacio
+        archivos_grandes
+        evidencias
+
+    Internamente utiliza ahora el Snapshot oficial.
+
+    Esto permite migrar progresivamente el proyecto sin romper
+    el código existente.
+    """
+
+    fecha = datetime.now(
+        timezone.utc
+    ).isoformat()
+
+    snapshot = analizar_snapshot()
 
     return {
         "fecha": fecha,
-        "snapshot_id": snapshot_id,
+        "snapshot_id": snapshot.snapshot_id,
         "espacio": espacio(),
-        "archivos_grandes": hallazgos,
-        "evidencias": [
-            evidencia.to_dict()
-            for evidencia in evidencias
+        "archivos_grandes": [
+            {
+                "mb": round(
+                    file_data.size_bytes / 1e6,
+                    1,
+                ),
+                "ruta": file_data.path,
+            }
+            for file_data in snapshot.files
         ],
+        "evidencias": [
+            evidence.to_dict()
+            for evidence in snapshot.evidences
+        ],
+        "snapshot": snapshot.to_dict(),
     }
 
 
 def guardar_snapshot(
-    datos: dict,
+    datos: dict[str, Any],
 ) -> Path:
-    """Guarda un snapshot sin modificar archivos analizados."""
+    """Guarda un snapshot en JSON.
+
+    Compatibilidad histórica.
+
+    El sistema nuevo debe preferir:
+
+        Snapshot.to_json()
+
+    y utilizar esta función solamente cuando una parte antigua
+    del proyecto todavía espere un diccionario.
+    """
 
     SNAPSHOTS.mkdir(
         parents=True,
@@ -482,10 +740,37 @@ def guardar_snapshot(
     return ruta
 
 
+def guardar_snapshot_oficial(
+    snapshot: Snapshot,
+) -> Path:
+    """Guarda un Snapshot oficial de BLUMCL.
+
+    Utiliza Snapshot.to_json() en lugar de construir
+    manualmente el JSON.
+    """
+
+    SNAPSHOTS.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    ruta = (
+        SNAPSHOTS
+        / f"{snapshot.snapshot_id}.json"
+    )
+
+    ruta.write_text(
+        snapshot.to_json(),
+        encoding="utf-8",
+    )
+
+    return ruta
+
+
 def autodiagnostico() -> list[str]:
     """Genera avisos informativos sin ejecutar acciones."""
 
-    avisos = []
+    avisos: list[str] = []
 
     build = HOME / "llama.cpp" / "build"
 
@@ -496,37 +781,41 @@ def autodiagnostico() -> list[str]:
             "determinar si sigue siendo necesaria."
         )
 
-    for modelo in [
+    for modelo in (
         "qwen25-15b.gguf",
         "llama32.gguf",
         "qwen3.gguf",
-    ]:
+    ):
 
         path = HOME / modelo
 
-        if path.exists():
+        if not path.exists():
+            continue
 
-            try:
-                size_mb = round(
-                    path.stat().st_size / 1e6
-                )
-
-            except OSError:
-                continue
-
-            avisos.append(
-                f"{modelo}: {size_mb} MB "
-                "(modelo de IA: conservar si se utiliza)."
+        try:
+            size_mb = round(
+                path.stat().st_size / 1e6
             )
+
+        except OSError:
+            continue
+
+        avisos.append(
+            f"{modelo}: {size_mb} MB "
+            "(modelo de IA: conservar si se utiliza)."
+        )
 
     return avisos
 
 
 __all__ = [
     "analizar",
+    "analizar_snapshot",
     "archivos_grandes",
     "autodiagnostico",
+    "crear_snapshot",
     "espacio",
     "generar_evidencias_archivos_grandes",
     "guardar_snapshot",
+    "guardar_snapshot_oficial",
 ]

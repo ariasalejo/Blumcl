@@ -1,0 +1,32 @@
+{
+  "limits": {
+    "max_evidence_per_snapshot": 100000
+  },
+  "size": {
+    "large_file_bytes": 104857600,
+    "bonus_100mb": 10,
+    "bonus_500mb": 20,
+    "bonus_1gb": 30,
+    "bonus_5gb": 40
+  },
+  "age": {
+    "old_file_days": 180,
+    "stale_temp_days": 30,
+    "stale_cache_days": 30,
+    "old_download_days": 90
+  },
+  "confidence": {
+    "min": 0.30,
+    "low_threshold": 0.50,
+    "high_threshold": 0.85
+  },
+  "recurrence": {
+    "step": 5,
+    "cap": 15,
+    "persistence_threshold": 2
+  },
+  "trend": {
+    "growth_threshold_bytes": 1048576,
+    "growth_percent_threshold": 10.0
+  }
+}

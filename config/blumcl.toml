@@ -1,0 +1,70 @@
+[general]
+schema_version = "1.1.0"
+
+[sizes]
+large_file_bytes = 104857600
+size_bonus_tiers = [
+    [104857600, 10],
+    [524288000, 20],
+    [1073741824, 30],
+    [5368709120, 40],
+]
+
+[time]
+old_file_days = 180
+stale_temp_days = 30
+stale_cache_days = 30
+old_download_days = 90
+
+[confidence]
+min_confidence = 0.30
+low_confidence_threshold = 0.50
+high_confidence_threshold = 0.85
+
+[recurrence]
+recurrence_step = 5
+recurrence_cap = 15
+persistence_threshold = 2
+
+[trends]
+growth_threshold_bytes = 1048576
+growth_percent_threshold = 10.0
+burst_occurrences = 3
+abnormal_growth_factor = 3.0
+
+[limits]
+max_snapshots = 1000
+max_evidence_per_snapshot = 100000
+max_path_length = 4096
+
+[paths]
+snapshots_dir = "data/snapshots"
+reports_dir = "reports"
+
+[filters]
+ignore_path_fragments = []
+include_path_fragments = []
+
+[report]
+top = 20
+output_format = "table"
+sort_by = "priority"
+
+[behavior]
+enable_derived_signals = true
+allow_dynamic_rules = false
+
+[scoring]
+confidence_bonus_max = 10
+recurrence_bonus_max = 15
+persistence_bonus_max = 15
+trend_bonus_max = 10
+size_bonus_max = 40
+max_priority = 100
+
+[scoring.severity_weights]
+critical = 100
+high = 80
+warning = 60
+review = 30
+info = 10

@@ -1,0 +1,1216 @@
+"""
+BLUMCL · Intelligence Configuration
+===================================
+
+Configuración centralizada del motor de inteligencia.
+
+Flujo:
+
+    TOML / JSON
+          ↓
+    load_config()
+          ↓
+    config_from_dict()
+          ↓
+    IntelligenceConfig
+          ↓
+    reglas / correlación / señales
+          ↓
+    prioridad
+
+Principios:
+
+    • Este módulo NO modifica archivos.
+    • Este módulo NO ejecuta acciones.
+    • Este módulo solamente carga, normaliza y valida configuración.
+    • La configuración debe ser determinista y auditable.
+
+Copyright © 2026 Eduar Alejandro Arias Londoño
+SPDX-License-Identifier: MIT
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Mapping
+import json
+import tomllib
+
+
+__author__ = "Eduar Alejandro Arias Londoño"
+__copyright__ = "Copyright © 2026 Eduar Alejandro Arias Londoño"
+__license__ = "MIT"
+__version__ = "1.1.0"
+
+
+__all__ = [
+    "IntelligenceConfig",
+    "DEFAULT_CONFIG",
+    "DEFAULT_SEVERITY_WEIGHTS",
+    "default_config",
+    "config_to_dict",
+    "config_from_dict",
+    "load_config",
+    "get_config",
+    "get_typed_config",
+    "validate_config",
+    "describe_config",
+]
+
+
+# ============================================================
+# CONSTANTES
+# ============================================================
+
+DEFAULT_SEVERITY_WEIGHTS: Mapping[str, int] = {
+    "critical": 100,
+    "high": 80,
+    "warning": 60,
+    "review": 30,
+    "info": 10,
+}
+
+
+# ============================================================
+# UTILIDADES
+# ============================================================
+
+def _norm_str_tuple(
+    value: Any,
+) -> tuple[str, ...]:
+    """
+    Normaliza una lista, tupla o string a una tupla
+    de strings limpios y en minúscula.
+    """
+
+    if value is None:
+        return ()
+
+    if isinstance(value, str):
+        items = value.split(",")
+
+    elif isinstance(value, (list, tuple)):
+        items = list(value)
+
+    else:
+        items = [value]
+
+    return tuple(
+        str(item).strip().lower()
+        for item in items
+        if str(item).strip()
+    )
+
+
+def _norm_size_bonus_tiers(
+    value: Any,
+) -> tuple[tuple[int, int], ...]:
+    """
+    Normaliza los niveles de bonificación por tamaño.
+
+    Entrada esperada:
+
+        [
+            [104857600, 10],
+            [524288000, 20],
+        ]
+
+    Salida:
+
+        (
+            (104857600, 10),
+            (524288000, 20),
+        )
+    """
+
+    if value is None:
+        return ()
+
+    resultado: list[tuple[int, int]] = []
+
+    try:
+        for item in value:
+            if not isinstance(item, (list, tuple)):
+                continue
+
+            if len(item) != 2:
+                continue
+
+            limite = int(item[0])
+            bonus = int(item[1])
+
+            resultado.append(
+                (
+                    limite,
+                    bonus,
+                )
+            )
+
+    except (TypeError, ValueError):
+        return ()
+
+    resultado.sort(
+        key=lambda item: item[0]
+    )
+
+    return tuple(resultado)
+
+
+# ============================================================
+# CONFIGURACIÓN TIPADA
+# ============================================================
+
+@dataclass(frozen=True)
+class IntelligenceConfig:
+    """
+    Configuración completa del motor de inteligencia BLUMCL.
+    """
+
+    # --------------------------------------------------------
+    # GENERAL
+    # --------------------------------------------------------
+
+    schema_version: str = "1.1.0"
+
+    # --------------------------------------------------------
+    # SIZES
+    # --------------------------------------------------------
+
+    large_file_bytes: int = 100 * 1024 * 1024
+
+    size_bonus_tiers: tuple[tuple[int, int], ...] = (
+        (
+            100 * 1024 * 1024,
+            10,
+        ),
+        (
+            500 * 1024 * 1024,
+            20,
+        ),
+        (
+            1024 * 1024 * 1024,
+            30,
+        ),
+        (
+            5 * 1024 * 1024 * 1024,
+            40,
+        ),
+    )
+
+    # --------------------------------------------------------
+    # TIME
+    # --------------------------------------------------------
+
+    old_file_days: int = 180
+
+    stale_temp_days: int = 30
+
+    stale_cache_days: int = 30
+
+    old_download_days: int = 90
+
+    # --------------------------------------------------------
+    # CONFIDENCE
+    # --------------------------------------------------------
+
+    confidence_min: float = 0.30
+
+    confidence_low_threshold: float = 0.50
+
+    confidence_high_threshold: float = 0.85
+
+    # --------------------------------------------------------
+    # RECURRENCE
+    # --------------------------------------------------------
+
+    recurrence_step: int = 5
+
+    recurrence_cap: int = 15
+
+    persistence_threshold: int = 2
+
+    # --------------------------------------------------------
+    # TRENDS
+    # --------------------------------------------------------
+
+    growth_threshold_bytes: int = 1024 * 1024
+
+    growth_percent_threshold: float = 10.0
+
+    burst_occurrences: int = 3
+
+    abnormal_growth_factor: float = 3.0
+
+    # --------------------------------------------------------
+    # LIMITS
+    # --------------------------------------------------------
+
+    max_snapshots: int = 1000
+
+    max_evidence_per_snapshot: int = 100_000
+
+    max_path_length: int = 4096
+
+    # --------------------------------------------------------
+    # PATHS
+    # --------------------------------------------------------
+
+    snapshots_dir: Path = Path(
+        "data/snapshots"
+    )
+
+    reports_dir: Path = Path(
+        "reports"
+    )
+
+    # --------------------------------------------------------
+    # FILTERS
+    # --------------------------------------------------------
+
+    ignore_path_fragments: tuple[str, ...] = ()
+
+    include_path_fragments: tuple[str, ...] = ()
+
+    # --------------------------------------------------------
+    # REPORT
+    # --------------------------------------------------------
+
+    top: int = 20
+
+    output_format: str = "table"
+
+    sort_by: str = "priority"
+
+    # --------------------------------------------------------
+    # BEHAVIOR
+    # --------------------------------------------------------
+
+    enable_derived_signals: bool = True
+
+    allow_dynamic_rules: bool = False
+
+    # --------------------------------------------------------
+    # SCORING
+    # --------------------------------------------------------
+
+    confidence_bonus_max: int = 10
+
+    recurrence_bonus_max: int = 15
+
+    persistence_bonus_max: int = 15
+
+    trend_bonus_max: int = 10
+
+    size_bonus_max: int = 40
+
+    max_priority: int = 100
+
+    severity_weights: Mapping[str, int] = DEFAULT_SEVERITY_WEIGHTS
+
+
+# ============================================================
+# CONFIGURACIÓN PREDETERMINADA
+# ============================================================
+
+DEFAULT_CONFIG = IntelligenceConfig()
+
+
+def default_config() -> IntelligenceConfig:
+    """
+    Devuelve la configuración predeterminada.
+    """
+
+    return DEFAULT_CONFIG
+
+
+# ============================================================
+# CONVERSIÓN A DICCIONARIO
+# ============================================================
+
+def config_to_dict(
+    config: IntelligenceConfig = DEFAULT_CONFIG,
+) -> dict[str, Any]:
+    """
+    Convierte IntelligenceConfig a un diccionario estructurado
+    compatible con el esquema TOML.
+    """
+
+    return {
+        "general": {
+            "schema_version": config.schema_version,
+        },
+
+        "sizes": {
+            "large_file_bytes": config.large_file_bytes,
+            "size_bonus_tiers": [
+                [
+                    limite,
+                    bonus,
+                ]
+                for limite, bonus in config.size_bonus_tiers
+            ],
+        },
+
+        "time": {
+            "old_file_days": config.old_file_days,
+            "stale_temp_days": config.stale_temp_days,
+            "stale_cache_days": config.stale_cache_days,
+            "old_download_days": config.old_download_days,
+        },
+
+        "confidence": {
+            "min_confidence": config.confidence_min,
+            "low_confidence_threshold": (
+                config.confidence_low_threshold
+            ),
+            "high_confidence_threshold": (
+                config.confidence_high_threshold
+            ),
+        },
+
+        "recurrence": {
+            "recurrence_step": config.recurrence_step,
+            "recurrence_cap": config.recurrence_cap,
+            "persistence_threshold": (
+                config.persistence_threshold
+            ),
+        },
+
+        "trends": {
+            "growth_threshold_bytes": (
+                config.growth_threshold_bytes
+            ),
+            "growth_percent_threshold": (
+                config.growth_percent_threshold
+            ),
+            "burst_occurrences": config.burst_occurrences,
+            "abnormal_growth_factor": (
+                config.abnormal_growth_factor
+            ),
+        },
+
+        "limits": {
+            "max_snapshots": config.max_snapshots,
+            "max_evidence_per_snapshot": (
+                config.max_evidence_per_snapshot
+            ),
+            "max_path_length": config.max_path_length,
+        },
+
+        "paths": {
+            "snapshots_dir": str(
+                config.snapshots_dir
+            ),
+            "reports_dir": str(
+                config.reports_dir
+            ),
+        },
+
+        "filters": {
+            "ignore_path_fragments": list(
+                config.ignore_path_fragments
+            ),
+            "include_path_fragments": list(
+                config.include_path_fragments
+            ),
+        },
+
+        "report": {
+            "top": config.top,
+            "output_format": config.output_format,
+            "sort_by": config.sort_by,
+        },
+
+        "behavior": {
+            "enable_derived_signals": (
+                config.enable_derived_signals
+            ),
+            "allow_dynamic_rules": (
+                config.allow_dynamic_rules
+            ),
+        },
+
+        "scoring": {
+            "confidence_bonus_max": (
+                config.confidence_bonus_max
+            ),
+            "recurrence_bonus_max": (
+                config.recurrence_bonus_max
+            ),
+            "persistence_bonus_max": (
+                config.persistence_bonus_max
+            ),
+            "trend_bonus_max": (
+                config.trend_bonus_max
+            ),
+            "size_bonus_max": (
+                config.size_bonus_max
+            ),
+            "max_priority": config.max_priority,
+            "severity_weights": dict(
+                config.severity_weights
+            ),
+        },
+    }
+
+
+# ============================================================
+# CONVERSIÓN DESDE DICCIONARIO
+# ============================================================
+
+def config_from_dict(
+    data: Mapping[str, Any],
+) -> IntelligenceConfig:
+    """
+    Construye una IntelligenceConfig desde un diccionario.
+
+    El TOML/JSON utiliza nombres agrupados por sección,
+    mientras IntelligenceConfig utiliza nombres planos.
+    """
+
+    def _section(
+        name: str,
+    ) -> Mapping[str, Any]:
+
+        value = data.get(
+            name,
+            {},
+        )
+
+        if isinstance(
+            value,
+            Mapping,
+        ):
+            return value
+
+        return {}
+
+    def _get(
+        section: str,
+        key: str,
+        default: Any,
+    ) -> Any:
+
+        return _section(
+            section
+        ).get(
+            key,
+            default,
+        )
+
+    general = _section(
+        "general"
+    )
+
+    return IntelligenceConfig(
+
+        # ----------------------------------------------------
+        # GENERAL
+        # ----------------------------------------------------
+
+        schema_version=general.get(
+            "schema_version",
+            "1.1.0",
+        ),
+
+        # ----------------------------------------------------
+        # SIZES
+        # ----------------------------------------------------
+
+        large_file_bytes=int(
+            _get(
+                "sizes",
+                "large_file_bytes",
+                100 * 1024 * 1024,
+            )
+        ),
+
+        size_bonus_tiers=_norm_size_bonus_tiers(
+            _get(
+                "sizes",
+                "size_bonus_tiers",
+                (
+                    (
+                        100 * 1024 * 1024,
+                        10,
+                    ),
+                    (
+                        500 * 1024 * 1024,
+                        20,
+                    ),
+                    (
+                        1024 * 1024 * 1024,
+                        30,
+                    ),
+                    (
+                        5 * 1024 * 1024 * 1024,
+                        40,
+                    ),
+                ),
+            )
+        ),
+
+        # ----------------------------------------------------
+        # TIME
+        # ----------------------------------------------------
+
+        old_file_days=int(
+            _get(
+                "time",
+                "old_file_days",
+                180,
+            )
+        ),
+
+        stale_temp_days=int(
+            _get(
+                "time",
+                "stale_temp_days",
+                30,
+            )
+        ),
+
+        stale_cache_days=int(
+            _get(
+                "time",
+                "stale_cache_days",
+                30,
+            )
+        ),
+
+        old_download_days=int(
+            _get(
+                "time",
+                "old_download_days",
+                90,
+            )
+        ),
+
+        # ----------------------------------------------------
+        # CONFIDENCE
+        # ----------------------------------------------------
+
+        confidence_min=float(
+            _get(
+                "confidence",
+                "min_confidence",
+                0.30,
+            )
+        ),
+
+        confidence_low_threshold=float(
+            _get(
+                "confidence",
+                "low_confidence_threshold",
+                0.50,
+            )
+        ),
+
+        confidence_high_threshold=float(
+            _get(
+                "confidence",
+                "high_confidence_threshold",
+                0.85,
+            )
+        ),
+
+        # ----------------------------------------------------
+        # RECURRENCE
+        # ----------------------------------------------------
+
+        recurrence_step=int(
+            _get(
+                "recurrence",
+                "recurrence_step",
+                5,
+            )
+        ),
+
+        recurrence_cap=int(
+            _get(
+                "recurrence",
+                "recurrence_cap",
+                15,
+            )
+        ),
+
+        persistence_threshold=int(
+            _get(
+                "recurrence",
+                "persistence_threshold",
+                2,
+            )
+        ),
+
+        # ----------------------------------------------------
+        # TRENDS
+        # ----------------------------------------------------
+
+        growth_threshold_bytes=int(
+            _get(
+                "trends",
+                "growth_threshold_bytes",
+                1024 * 1024,
+            )
+        ),
+
+        growth_percent_threshold=float(
+            _get(
+                "trends",
+                "growth_percent_threshold",
+                10.0,
+            )
+        ),
+
+        burst_occurrences=int(
+            _get(
+                "trends",
+                "burst_occurrences",
+                3,
+            )
+        ),
+
+        abnormal_growth_factor=float(
+            _get(
+                "trends",
+                "abnormal_growth_factor",
+                3.0,
+            )
+        ),
+
+        # ----------------------------------------------------
+        # LIMITS
+        # ----------------------------------------------------
+
+        max_snapshots=int(
+            _get(
+                "limits",
+                "max_snapshots",
+                1000,
+            )
+        ),
+
+        max_evidence_per_snapshot=int(
+            _get(
+                "limits",
+                "max_evidence_per_snapshot",
+                100_000,
+            )
+        ),
+
+        max_path_length=int(
+            _get(
+                "limits",
+                "max_path_length",
+                4096,
+            )
+        ),
+
+        # ----------------------------------------------------
+        # PATHS
+        # ----------------------------------------------------
+
+        snapshots_dir=Path(
+            _get(
+                "paths",
+                "snapshots_dir",
+                "data/snapshots",
+            )
+        ),
+
+        reports_dir=Path(
+            _get(
+                "paths",
+                "reports_dir",
+                "reports",
+            )
+        ),
+
+        # ----------------------------------------------------
+        # FILTERS
+        # ----------------------------------------------------
+
+        ignore_path_fragments=_norm_str_tuple(
+            _get(
+                "filters",
+                "ignore_path_fragments",
+                (),
+            )
+        ),
+
+        include_path_fragments=_norm_str_tuple(
+            _get(
+                "filters",
+                "include_path_fragments",
+                (),
+            )
+        ),
+
+        # ----------------------------------------------------
+        # REPORT
+        # ----------------------------------------------------
+
+        top=int(
+            _get(
+                "report",
+                "top",
+                20,
+            )
+        ),
+
+        output_format=str(
+            _get(
+                "report",
+                "output_format",
+                "table",
+            )
+        ),
+
+        sort_by=str(
+            _get(
+                "report",
+                "sort_by",
+                "priority",
+            )
+        ),
+
+        # ----------------------------------------------------
+        # BEHAVIOR
+        # ----------------------------------------------------
+
+        enable_derived_signals=bool(
+            _get(
+                "behavior",
+                "enable_derived_signals",
+                True,
+            )
+        ),
+
+        allow_dynamic_rules=bool(
+            _get(
+                "behavior",
+                "allow_dynamic_rules",
+                False,
+            )
+        ),
+
+        # ----------------------------------------------------
+        # SCORING
+        # ----------------------------------------------------
+
+        confidence_bonus_max=int(
+            _get(
+                "scoring",
+                "confidence_bonus_max",
+                10,
+            )
+        ),
+
+        recurrence_bonus_max=int(
+            _get(
+                "scoring",
+                "recurrence_bonus_max",
+                15,
+            )
+        ),
+
+        persistence_bonus_max=int(
+            _get(
+                "scoring",
+                "persistence_bonus_max",
+                15,
+            )
+        ),
+
+        trend_bonus_max=int(
+            _get(
+                "scoring",
+                "trend_bonus_max",
+                10,
+            )
+        ),
+
+        size_bonus_max=int(
+            _get(
+                "scoring",
+                "size_bonus_max",
+                40,
+            )
+        ),
+
+        max_priority=int(
+            _get(
+                "scoring",
+                "max_priority",
+                100,
+            )
+        ),
+
+        severity_weights=dict(
+            _get(
+                "scoring",
+                "severity_weights",
+                dict(
+                    DEFAULT_SEVERITY_WEIGHTS
+                ),
+            )
+        ),
+    )
+
+
+# ============================================================
+# VALIDACIÓN
+# ============================================================
+
+def validate_config(
+    config: IntelligenceConfig,
+) -> None:
+    """
+    Valida invariantes de seguridad de la configuración.
+
+    Lanza ValueError si existe una configuración incoherente.
+    """
+
+    if not (
+        0.0
+        <= config.confidence_min
+        <= 1.0
+    ):
+        raise ValueError(
+            "confidence_min debe estar entre 0.0 y 1.0"
+        )
+
+    if not (
+        0.0
+        <= config.confidence_low_threshold
+        <= 1.0
+    ):
+        raise ValueError(
+            "confidence_low_threshold debe estar "
+            "entre 0.0 y 1.0"
+        )
+
+    if not (
+        0.0
+        <= config.confidence_high_threshold
+        <= 1.0
+    ):
+        raise ValueError(
+            "confidence_high_threshold debe estar "
+            "entre 0.0 y 1.0"
+        )
+
+    if (
+        config.confidence_min
+        > config.confidence_low_threshold
+    ):
+        raise ValueError(
+            "confidence_min no puede superar "
+            "confidence_low_threshold"
+        )
+
+    if (
+        config.confidence_low_threshold
+        > config.confidence_high_threshold
+    ):
+        raise ValueError(
+            "confidence_low_threshold no puede superar "
+            "confidence_high_threshold"
+        )
+
+    if config.large_file_bytes <= 0:
+        raise ValueError(
+            "large_file_bytes debe ser mayor que cero"
+        )
+
+    if config.max_snapshots <= 0:
+        raise ValueError(
+            "max_snapshots debe ser mayor que cero"
+        )
+
+    if config.max_evidence_per_snapshot <= 0:
+        raise ValueError(
+            "max_evidence_per_snapshot debe ser "
+            "mayor que cero"
+        )
+
+    if config.max_path_length <= 0:
+        raise ValueError(
+            "max_path_length debe ser mayor que cero"
+        )
+
+    if config.recurrence_step < 0:
+        raise ValueError(
+            "recurrence_step no puede ser negativo"
+        )
+
+    if config.recurrence_cap < 0:
+        raise ValueError(
+            "recurrence_cap no puede ser negativo"
+        )
+
+    if config.persistence_threshold < 0:
+        raise ValueError(
+            "persistence_threshold no puede ser negativo"
+        )
+
+    if config.growth_threshold_bytes < 0:
+        raise ValueError(
+            "growth_threshold_bytes no puede ser negativo"
+        )
+
+    if config.growth_percent_threshold < 0:
+        raise ValueError(
+            "growth_percent_threshold no puede ser negativo"
+        )
+
+    if config.burst_occurrences <= 0:
+        raise ValueError(
+            "burst_occurrences debe ser mayor que cero"
+        )
+
+    if config.abnormal_growth_factor < 0:
+        raise ValueError(
+            "abnormal_growth_factor no puede ser negativo"
+        )
+
+    if config.max_priority <= 0:
+        raise ValueError(
+            "max_priority debe ser mayor que cero"
+        )
+
+    if config.top <= 0:
+        raise ValueError(
+            "report.top debe ser mayor que cero"
+        )
+
+    if not isinstance(
+        config.severity_weights,
+        Mapping,
+    ):
+        raise ValueError(
+            "severity_weights debe ser un mapping"
+        )
+
+    for severity in (
+        "critical",
+        "high",
+        "warning",
+        "review",
+        "info",
+    ):
+        if severity not in config.severity_weights:
+            raise ValueError(
+                f"Falta severity weight: {severity}"
+            )
+
+        if int(
+            config.severity_weights[severity]
+        ) < 0:
+            raise ValueError(
+                f"Peso negativo para severity: {severity}"
+            )
+
+
+# ============================================================
+# CARGA DESDE TOML / JSON
+# ============================================================
+
+def load_config(
+    path: str | Path | None = None,
+) -> IntelligenceConfig:
+    """
+    Carga configuración desde TOML o JSON.
+
+    Si no se especifica ruta:
+
+        config/blumcl.toml
+
+    Si el archivo no existe, utiliza DEFAULT_CONFIG.
+
+    Un archivo existente pero inválido produce ValueError.
+    """
+
+    candidate = (
+        Path(path).expanduser()
+        if path is not None
+        else Path("config/blumcl.toml")
+    )
+
+    if not candidate.exists():
+        return DEFAULT_CONFIG
+
+    try:
+
+        contenido = candidate.read_text(
+            encoding="utf-8"
+        )
+
+        if candidate.suffix.lower() == ".json":
+
+            data = json.loads(
+                contenido
+            )
+
+        else:
+
+            data = tomllib.loads(
+                contenido
+            )
+
+    except (
+        OSError,
+        UnicodeError,
+        json.JSONDecodeError,
+        tomllib.TOMLDecodeError,
+    ) as exc:
+
+        raise ValueError(
+            f"No se pudo leer la configuración: "
+            f"{candidate}"
+        ) from exc
+
+    if not isinstance(
+        data,
+        Mapping,
+    ):
+        raise ValueError(
+            "La configuración debe ser un objeto/diccionario"
+        )
+
+    config = config_from_dict(
+        data
+    )
+
+    validate_config(
+        config
+    )
+
+    return config
+
+
+# ============================================================
+# API DE COMPATIBILIDAD
+# ============================================================
+
+def get_typed_config(
+    path: str | Path | None = None,
+) -> IntelligenceConfig:
+    """
+    Devuelve la configuración tipada.
+
+    Esta es la API recomendada para código nuevo.
+    """
+
+    return load_config(
+        path
+    )
+
+
+def get_config(
+    path: str | Path | None = None,
+) -> dict[str, Any]:
+    """
+    Devuelve la configuración como diccionario.
+
+    Mantiene compatibilidad con módulos que todavía
+    trabajan con acceso por claves.
+    """
+
+    config = load_config(
+        path
+    )
+
+    return config_to_dict(
+        config
+    )
+
+
+# ============================================================
+# REPRESENTACIÓN LEGIBLE
+# ============================================================
+
+def describe_config(
+    config: IntelligenceConfig = DEFAULT_CONFIG,
+) -> str:
+    """
+    Devuelve una representación legible de la configuración.
+    """
+
+    values = config_to_dict(
+        config
+    )
+
+    lines = [
+        "🧠 BLUMCL · INTELLIGENCE CONFIGURATION",
+        "=" * 64,
+    ]
+
+    for section, values_section in values.items():
+
+        lines.append(
+            ""
+        )
+
+        lines.append(
+            f"[{section}]"
+        )
+
+        if isinstance(
+            values_section,
+            Mapping,
+        ):
+
+            for key, value in values_section.items():
+
+                if isinstance(
+                    value,
+                    (list, tuple, dict),
+                ):
+
+                    text = json.dumps(
+                        value,
+                        ensure_ascii=False,
+                    )
+
+                else:
+
+                    text = str(
+                        value
+                    )
+
+                lines.append(
+                    f"{key:32} {text}"
+                )
+
+        else:
+
+            lines.append(
+                str(values_section)
+            )
+
+    return "\n".join(
+        lines
+    )
+
+
+# ============================================================
+# EJECUCIÓN DIRECTA
+# ============================================================
+
+if __name__ == "__main__":
+
+    cfg = load_config()
+
+    print(
+        describe_config(
+            cfg
+        )
+    )
+
+    print()
+
+    print(
+        "✅ Configuración validada correctamente."
+    )
